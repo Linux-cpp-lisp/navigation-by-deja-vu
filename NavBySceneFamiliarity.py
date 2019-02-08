@@ -230,13 +230,13 @@ class NavBySceneFamiliarity(object):
             sensor_rect.angle = np.rad2deg(ang)
             #sensor_rect.set_xy( + sens_rect_dims * [np.cos(ang), np.sin(ang)]))
 
-            scene_ln.set_data(scene_ln_x, self.scene_familiarity)
+            scene_ln.set_ydata(self.scene_familiarity)
             s_amin = np.argmin(self.scene_familiarity)
-            scene_min.set_data([s_amin, s_amin], [0, 1])
+            scene_min.set_xdata([s_amin, s_amin])
 
-            angle_ln.set_data(angle_ln_x, self.angle_familiarity)
+            angle_ln.set_ydata(self.angle_familiarity)
             a_amin = 360. * np.argmin(self.angle_familiarity) / len(self.angle_familiarity)
-            angle_min.set_data([a_amin, a_amin], [0, 1])
+            angle_min.set_xdata([a_amin, a_amin])
 
             sensor_im.set_array(self.get_sensor_mat(pos, ang))
 
@@ -244,7 +244,7 @@ class NavBySceneFamiliarity(object):
             #anim_ref[0].event_source.stop()
 
         anim = FuncAnimation(fig, upd,
-                             frames = 200, interval = 70, #itertools.repeat(1),
+                             frames = 200, interval = 100, #itertools.repeat(1),
                              blit = True, repeat = False)
         #anim_ref[0] = anim
 
