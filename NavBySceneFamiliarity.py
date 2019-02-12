@@ -10,10 +10,12 @@ import itertools
 import math
 
 class StopNavigationException(Exception):
-    pass
+    def get_reason(self):
+        raise NotImplementedError()
 
 class OutOfLandscapeBoundsException(StopNavigationException):
-    pass
+    def get_reason(self):
+        return "agent went too close to boundary of landscape"
 
 class NavBySceneFamiliarity(object):
     def __init__(self,
@@ -25,6 +27,10 @@ class NavBySceneFamiliarity(object):
                  sensor_pixel_dimensions = [1, 1],
                  n_sensor_levels = 5):
         self.landscape = landscape
+
+        self.position = (0., 0.)
+        self.angle = 0.
+
         self.familiar_scenes = None
         self.n_test_angles = n_test_angles
         self.angles = np.linspace(0, 2 * np.pi, self.n_test_angles)
@@ -80,7 +86,6 @@ class NavBySceneFamiliarity(object):
         r1 = out.shape[1] // 2
         out = out[r0 - self.sensor_dimensions[0] // 2 : r0 + self.sensor_dimensions[0] // 2, r1 - self.sensor_dimensions[1] // 2 : r1 + self.sensor_dimensions[1] // 2]
 
-        #np.rint(out, out = out)
         out *= self.n_sensor_levels
         np.rint(out, out = out)
         out /= self.n_sensor_levels
@@ -90,28 +95,10 @@ class NavBySceneFamiliarity(object):
         del sensor_mat
         return out
 
-        # position = np.round(position).astype(np.int)
-        # r = self.sensor_radius * self.pixel_scale_factor
-        #
-        # if np.any(np.logical_or(position < r, position > np.subtract(self.landscape.shape, r))):
-        #     raise OutOfLandscapeBoundsException()
-        #
-        # sensor_mat = np.copy(self.landscape[position[0] - r:position[0] + r,
-        #                                     position[1] - r:position[1] + r])
-        #
-        # out = skimage.transform.downscale_local_mean(sensor_mat, (self.pixel_scale_factor, self.pixel_scale_factor))
-        # out = skimage.transform.rotate(out, 180. * angle / np.pi)
-        #
-        # np.rint(out, out = out)
-        #
-        # #out[self._mask] = 0.
-        # out = out[self.sensor_radius-1]
-        #
-        # del sensor_mat
-        # return out
 
+    def step_forward(self):
+        position = self.position
 
-    def step_forward(self, position, start_angle):
         temp = np.empty(shape = self.sensor_dimensions)
         temp_fam = np.empty_like(self.scene_familiarity)
         temp_fam[:] = np.nan
@@ -143,43 +130,53 @@ class NavBySceneFamiliarity(object):
         new_pos = (position[0] + self.step_size * np.cos(angle),
                    position[1] + self.step_size * np.sin(angle))
 
-        return (new_pos, angle)
+        self.position = new_pos
+        self.angle = angle
 
 
-    def animate(self, posarg, angarg):
+    def animate(self):
 
         navcolor = 'darkorchid'
         traincolor = 'dodgerblue'
 
+        # -- Make figure & axes
         fig = plt.figure(figsize = (10, 8))
-        gs = matplotlib.gridspec.GridSpec(3, 2,
-                                          width_ratios = [2, 1])
+        gs = matplotlib.gridspec.GridSpec(4, 2,
+                                          width_ratios = [2, 1],
+                                          height_ratios = [6, 6, 6, 1])
 
-        main_ax = plt.subplot(gs[:, 0])
+        main_ax = plt.subplot(gs[:3, 0])
         sensor_ax = plt.subplot(gs[0, 1])
         scene_ax = plt.subplot(gs[1, 1])
         angle_ax = plt.subplot(gs[2, 1])
+        status_ax = plt.subplot(gs[3, :])
 
-
-
-        #fig, (main_ax, scene_ax, angle_ax) = plt.subplots(nrows = 3, ncols = 2,
-        #                                                  figsize = (8, 8),
-        #                                                  gridspec_kw={'height_ratios': [7, 1, 1]})
-
-        main_ax.set_title("Navigation")
+        # -- Set titles, ticks, etc.
+        #fig.suptitle("Navigation: ")
 
         scene_ax.set_title("Familiarity")
         scene_ax.set_xlabel("Training Scene")
         angle_ax.set_xlabel("Angle")
 
+        status_ax.axes.get_xaxis().set_visible(False)
+        status_ax.axes.get_yaxis().set_visible(False)
+        for spline in ["top", "bottom", "left", "right"]:
+            status_ax.spines[spline].set_visible(False)
+
+        status_txt = status_ax.text(0.0, 0.3, "Navigating", ha = 'left', fontsize = 12, animated = True, zorder = 2)
+
+        scaling_vmax = 1.4
+
         sensor_ax.set_title("Sensor Matrix")
         init_sens_mat = np.zeros(shape = self.sensor_dimensions)
         init_sens_mat[0] = 1.
-        sensor_im = sensor_ax.matshow(init_sens_mat, cmap = 'binary', vmax = 1.4, animated = True)
+        sensor_im = sensor_ax.imshow(init_sens_mat, cmap = 'binary', vmax = scaling_vmax,
+                                     origin = 'lower', animated = True)
         sensor_ax.xaxis.set_major_locator(plt.NullLocator())
         sensor_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        main_ax.matshow(self.landscape, cmap = 'binary', vmax = 1.4)
+        # -- Plot basic elements
+        main_ax.imshow(self.landscape, cmap = 'binary', vmax = scaling_vmax, origin = 'lower')
         main_ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3)
 
         scene_ln_x = np.arange(len(self.scene_familiarity))
@@ -195,9 +192,8 @@ class NavBySceneFamiliarity(object):
         angle_ax.xaxis.set_major_formatter(StrMethodFormatter(u"{x:.0f}°"))
         angle_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        xpos, ypos = [posarg[0]], [posarg[1]]
+        xpos, ypos = [self.position[0]], [self.position[1]]
         path_ln, = main_ax.plot(xpos, ypos, color = navcolor, marker = 'o', markersize = 5, linewidth = 2, animated = True)
-
 
         sens_rect_dims = (self.sensor_dimensions * self.sensor_pixel_dimensions)
         sensor_rect = matplotlib.patches.Rectangle(xy = (0., 0.),
@@ -212,41 +208,50 @@ class NavBySceneFamiliarity(object):
 
         main_ax.add_patch(sensor_rect)
 
-        posthing = [posarg, angarg]
-        #anim_ref = [1]
+        anim_ref = [1]
 
-        def init():
-            return (path_ln, scene_ln, angle_ln, sensor_rect, sensor_im)
+        self._anim_stop_cond = False
 
         def upd(frame):
-            # Step forward
-            pos, ang = self.step_forward(*posthing)
-            posthing[0] = pos; posthing[1] = ang
-            xpos.append(posthing[0][0]); ypos.append(posthing[0][1])
-            path_ln.set_data(xpos, ypos)
+            artist_list = (path_ln, scene_ln, scene_min, angle_ln, angle_min, sensor_rect, sensor_im, status_txt)
 
-            sensor_rect.set_xy((pos[0] - sens_rect_dims[0] * np.cos(ang) + sens_rect_dims[1] * np.sin(ang),
-                                pos[1] - sens_rect_dims[0] * np.cos(ang) - sens_rect_dims[1] * np.cos(ang)))
-            sensor_rect.angle = np.rad2deg(ang)
-            #sensor_rect.set_xy( + sens_rect_dims * [np.cos(ang), np.sin(ang)]))
+            if not self._anim_stop_cond:
+                # Step forward
+                try:
+                    self.step_forward()
+                    new_sens_mat = self.get_sensor_mat(self.position, self.angle)
+                except StopNavigationException as e:
+                    self._anim_stop_cond = True
+                    status_txt.set_text("Stopped: %s" % e.get_reason())
+                    status_txt.set_color("red")
 
-            scene_ln.set_ydata(self.scene_familiarity)
-            s_amin = np.argmin(self.scene_familiarity)
-            scene_min.set_xdata([s_amin, s_amin])
+                    anim_ref[0].event_source.stop()
+                    return artist_list
 
-            angle_ln.set_ydata(self.angle_familiarity)
-            a_amin = 360. * np.argmin(self.angle_familiarity) / len(self.angle_familiarity)
-            angle_min.set_xdata([a_amin, a_amin])
+                xpos.append(self.position[0]); ypos.append(self.position[1])
+                path_ln.set_data(xpos, ypos)
 
-            sensor_im.set_array(self.get_sensor_mat(pos, ang))
+                sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
+                                    self.position[1] - sens_rect_dims[0] * np.cos(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
+                sensor_rect.angle = np.rad2deg(self.angle)
+                #sensor_rect.set_xy( + sens_rect_dims * [np.cos(ang), np.sin(ang)]))
 
-            return (path_ln, scene_ln, scene_min, angle_ln, angle_min, sensor_rect, sensor_im)
-            #anim_ref[0].event_source.stop()
+                scene_ln.set_ydata(self.scene_familiarity)
+                s_amin = np.argmin(self.scene_familiarity)
+                scene_min.set_xdata([s_amin, s_amin])
+
+                angle_ln.set_ydata(self.angle_familiarity)
+                a_amin = 360. * np.argmin(self.angle_familiarity) / len(self.angle_familiarity)
+                angle_min.set_xdata([a_amin, a_amin])
+
+                sensor_im.set_array(new_sens_mat)
+
+            return artist_list
 
         anim = FuncAnimation(fig, upd,
                              frames = 200, interval = 100, #itertools.repeat(1),
                              blit = True, repeat = False)
-        #anim_ref[0] = anim
+        anim_ref[0] = anim
 
         fig.tight_layout()
 

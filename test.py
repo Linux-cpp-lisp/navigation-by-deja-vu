@@ -19,7 +19,10 @@ nsf.train_from_path(path)
 
 #plt.matshow(nsf._mask)
 
-fig, anim = nsf.animate(path[0], 0)
+nsf.position = path[0]
+nsf.angle = 0.
+
+fig, anim = nsf.animate()
 
 #anim.save("test2.mp4")
 
