@@ -13,18 +13,29 @@ class StopNavigationException(Exception):
     def get_reason(self):
         raise NotImplementedError()
 
-class OutOfLandscapeBoundsException(StopNavigationException):
+class ReachedEndOfTrainingPathException(StopNavigationException):
+    def get_reason(self):
+        return "agent reached end of training path"
+
+class NavigatingFailedException(StopNavigationException):
+    pass
+
+class TooFarFromTrainingPathException(NavigatingFailedException):
+    def get_reason(self):
+        return "agent went too far from training path"
+
+class OutOfLandscapeBoundsException(NavigatingFailedException):
     def get_reason(self):
         return "agent went too close to boundary of landscape"
 
 class NavBySceneFamiliarity(object):
     def __init__(self,
                  landscape,
-                 #sensor_radius,
                  sensor_dimensions,
                  step_size,
                  n_test_angles = 60,
                  sensor_pixel_dimensions = [1, 1],
+                 max_distance_to_training_path = np.inf,
                  n_sensor_levels = 5):
         self.landscape = landscape
 
@@ -42,6 +53,7 @@ class NavBySceneFamiliarity(object):
         self.step_size = step_size
         self.angle_familiarity = np.empty(shape = n_test_angles)
         self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
+        self.max_distance_to_training_path = max_distance_to_training_path
 
         self.reset_error()
 
@@ -110,6 +122,10 @@ class NavBySceneFamiliarity(object):
 
     def update_error(self):
         diff = np.min(np.linalg.norm(self.training_path - self.position, axis = 1))
+
+        if diff > self.max_distance_to_training_path:
+            raise TooFarFromTrainingPathException()
+
         self._navigation_error += diff * diff
         self._n_navigation_error += 1
 
@@ -151,6 +167,9 @@ class NavBySceneFamiliarity(object):
         self.angle = angle
 
         self.update_error()
+
+        if np.linalg.norm(self.training_path[-1] - self.position) < self.step_size:
+            raise ReachedEndOfTrainingPathException()
 
 
     def animate(self):
