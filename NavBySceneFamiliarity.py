@@ -76,8 +76,8 @@ class NavBySceneFamiliarity(object):
         if np.any(np.logical_or(position < r, position > np.subtract(self.landscape.shape, r))):
             raise OutOfLandscapeBoundsException()
 
-        sensor_mat = np.copy(self.landscape[position[0] - r:position[0] + r,
-                                            position[1] - r:position[1] + r])
+        sensor_mat = np.copy(self.landscape[position[1] - r:position[1] + r,
+                                            position[0] - r:position[0] + r])
 
         out = skimage.transform.rotate(sensor_mat, 180. * angle / np.pi)
         out = skimage.transform.downscale_local_mean(out, tuple(self.sensor_pixel_dimensions))
@@ -135,7 +135,6 @@ class NavBySceneFamiliarity(object):
 
 
     def animate(self):
-
         navcolor = 'darkorchid'
         traincolor = 'dodgerblue'
 
@@ -152,7 +151,6 @@ class NavBySceneFamiliarity(object):
         status_ax = plt.subplot(gs[3, :])
 
         # -- Set titles, ticks, etc.
-        #fig.suptitle("Navigation: ")
 
         scene_ax.set_title("Familiarity")
         scene_ax.set_xlabel("Training Scene")
@@ -163,7 +161,8 @@ class NavBySceneFamiliarity(object):
         for spline in ["top", "bottom", "left", "right"]:
             status_ax.spines[spline].set_visible(False)
 
-        status_txt = status_ax.text(0.0, 0.3, "Navigating", ha = 'left', fontsize = 12, animated = True, zorder = 2)
+        info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes)
+        status_txt = status_ax.text(0.0, 0.8, "Navigating", ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes)
 
         scaling_vmax = 1.4
 
@@ -208,7 +207,7 @@ class NavBySceneFamiliarity(object):
 
         main_ax.add_patch(sensor_rect)
 
-        anim_ref = [1]
+        #anim_ref = [1]
 
         self._anim_stop_cond = False
 
@@ -225,7 +224,7 @@ class NavBySceneFamiliarity(object):
                     status_txt.set_text("Stopped: %s" % e.get_reason())
                     status_txt.set_color("red")
 
-                    anim_ref[0].event_source.stop()
+                    #anim_ref[0].event_source.stop()
                     return artist_list
 
                 xpos.append(self.position[0]); ypos.append(self.position[1])
@@ -234,7 +233,6 @@ class NavBySceneFamiliarity(object):
                 sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
                                     self.position[1] - sens_rect_dims[0] * np.cos(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
                 sensor_rect.angle = np.rad2deg(self.angle)
-                #sensor_rect.set_xy( + sens_rect_dims * [np.cos(ang), np.sin(ang)]))
 
                 scene_ln.set_ydata(self.scene_familiarity)
                 s_amin = np.argmin(self.scene_familiarity)
@@ -251,7 +249,7 @@ class NavBySceneFamiliarity(object):
         anim = FuncAnimation(fig, upd,
                              frames = 200, interval = 100, #itertools.repeat(1),
                              blit = True, repeat = False)
-        anim_ref[0] = anim
+        #anim_ref[0] = anim
 
         fig.tight_layout()
 
