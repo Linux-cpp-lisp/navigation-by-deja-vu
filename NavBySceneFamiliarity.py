@@ -43,6 +43,8 @@ class NavBySceneFamiliarity(object):
         self.angle_familiarity = np.empty(shape = n_test_angles)
         self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
 
+        self.reset_error()
+
 
     def train_from_path(self, points):
         self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[0], self.sensor_dimensions[1]), dtype = self.landscape.dtype)
@@ -59,6 +61,7 @@ class NavBySceneFamiliarity(object):
         self.scene_familiarity = np.zeros(shape = len(points))
         self.training_path = points
 
+
     def _make_sensor_mask(self):
         circ_mask = np.ones(shape = (self.sensor_size, self.sensor_size), dtype = np.bool)
         for i, j in itertools.product(range(self.sensor_size), repeat=2):
@@ -66,6 +69,7 @@ class NavBySceneFamiliarity(object):
                 circ_mask[i, j] = 0
 
         return circ_mask
+
 
     def get_sensor_mat(self, position, angle):
         position = np.round(position).astype(np.int)
@@ -95,6 +99,19 @@ class NavBySceneFamiliarity(object):
         del sensor_mat
         return out
 
+
+    def reset_error(self):
+        self._navigation_error = 0.0
+        self._n_navigation_error = 0
+
+    @property
+    def navigation_error(self):
+        return np.sqrt(self._navigation_error / self._n_navigation_error)
+
+    def update_error(self):
+        diff = np.min(np.linalg.norm(self.training_path - self.position, axis = 1))
+        self._navigation_error += diff * diff
+        self._n_navigation_error += 1
 
     def step_forward(self):
         position = self.position
@@ -133,6 +150,8 @@ class NavBySceneFamiliarity(object):
         self.position = new_pos
         self.angle = angle
 
+        self.update_error()
+
 
     def animate(self):
         navcolor = 'darkorchid'
@@ -161,8 +180,9 @@ class NavBySceneFamiliarity(object):
         for spline in ["top", "bottom", "left", "right"]:
             status_ax.spines[spline].set_visible(False)
 
+        status_string = "%s. Running RMSD error: %0.2f"
         info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes)
-        status_txt = status_ax.text(0.0, 0.8, "Navigating", ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes)
+        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes)
 
         scaling_vmax = 1.4
 
@@ -221,7 +241,7 @@ class NavBySceneFamiliarity(object):
                     new_sens_mat = self.get_sensor_mat(self.position, self.angle)
                 except StopNavigationException as e:
                     self._anim_stop_cond = True
-                    status_txt.set_text("Stopped: %s" % e.get_reason())
+                    status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error))
                     status_txt.set_color("red")
 
                     #anim_ref[0].event_source.stop()
@@ -229,6 +249,8 @@ class NavBySceneFamiliarity(object):
 
                 xpos.append(self.position[0]); ypos.append(self.position[1])
                 path_ln.set_data(xpos, ypos)
+
+                status_txt.set_text(status_string % ("Navigating", self.navigation_error))
 
                 sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
                                     self.position[1] - sens_rect_dims[0] * np.cos(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
