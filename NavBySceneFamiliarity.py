@@ -59,7 +59,7 @@ class NavBySceneFamiliarity(object):
 
 
     def train_from_path(self, points):
-        self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[0], self.sensor_dimensions[1]), dtype = self.landscape.dtype)
+        self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[1], self.sensor_dimensions[0]), dtype = self.landscape.dtype)
 
         angles = points[1:] - points[0:-1]
         angles = np.arctan2(angles[:,1], angles[:, 0])
@@ -96,11 +96,11 @@ class NavBySceneFamiliarity(object):
                                             position[0] - r:position[0] + r])
 
         out = skimage.transform.rotate(sensor_mat, 180. * angle / np.pi)
-        out = skimage.transform.downscale_local_mean(out, tuple(self.sensor_pixel_dimensions))
+        out = skimage.transform.downscale_local_mean(out, (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0]))
 
         r0 = out.shape[0] // 2
         r1 = out.shape[1] // 2
-        out = out[r0 - self.sensor_dimensions[0] // 2 : r0 + self.sensor_dimensions[0] // 2, r1 - self.sensor_dimensions[1] // 2 : r1 + self.sensor_dimensions[1] // 2]
+        out = out[r0 - self.sensor_dimensions[1] // 2 : r0 + self.sensor_dimensions[1] // 2, r1 - self.sensor_dimensions[0] // 2 : r1 + self.sensor_dimensions[0] // 2]
 
         out *= self.n_sensor_levels
         np.rint(out, out = out)
@@ -132,7 +132,7 @@ class NavBySceneFamiliarity(object):
     def step_forward(self):
         position = self.position
 
-        temp = np.empty(shape = self.sensor_dimensions)
+        temp = np.empty(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
         temp_fam = np.empty_like(self.scene_familiarity)
         temp_fam[:] = np.nan
 
@@ -206,7 +206,7 @@ class NavBySceneFamiliarity(object):
         scaling_vmax = 1.4
 
         sensor_ax.set_title("Sensor Matrix")
-        init_sens_mat = np.zeros(shape = self.sensor_dimensions)
+        init_sens_mat = np.zeros(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
         init_sens_mat[0] = 1.
         sensor_im = sensor_ax.imshow(init_sens_mat, cmap = 'binary', vmax = scaling_vmax,
                                      origin = 'lower', animated = True)
@@ -233,7 +233,7 @@ class NavBySceneFamiliarity(object):
         xpos, ypos = [self.position[0]], [self.position[1]]
         path_ln, = main_ax.plot(xpos, ypos, color = navcolor, marker = 'o', markersize = 5, linewidth = 2, animated = True)
 
-        sens_rect_dims = (self.sensor_dimensions * self.sensor_pixel_dimensions)
+        sens_rect_dims = (self.sensor_dimensions * self.sensor_pixel_dimensions)[::-1]
         sensor_rect = matplotlib.patches.Rectangle(xy = (0., 0.),
                                                    width = sens_rect_dims[0],
                                                    height = sens_rect_dims[1],
@@ -272,7 +272,7 @@ class NavBySceneFamiliarity(object):
                 status_txt.set_text(status_string % ("Navigating", self.navigation_error))
 
                 sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
-                                    self.position[1] - sens_rect_dims[0] * np.cos(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
+                                    self.position[1] - sens_rect_dims[0] * np.sin(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
                 sensor_rect.angle = np.rad2deg(self.angle)
 
                 scene_ln.set_ydata(self.scene_familiarity)
