@@ -95,12 +95,13 @@ class NavBySceneFamiliarity(object):
         sensor_mat = np.copy(self.landscape[position[1] - r:position[1] + r,
                                             position[0] - r:position[0] + r])
 
-        out = skimage.transform.rotate(sensor_mat, 180. * angle / np.pi)
+        out = skimage.transform.rotate(sensor_mat, 270. + 180. * angle / np.pi)
         out = skimage.transform.downscale_local_mean(out, (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0]))
 
         r0 = out.shape[0] // 2
         r1 = out.shape[1] // 2
-        out = out[r0 - self.sensor_dimensions[1] // 2 : r0 + self.sensor_dimensions[1] // 2, r1 - self.sensor_dimensions[0] // 2 : r1 + self.sensor_dimensions[0] // 2]
+        out = out[r0 - self.sensor_dimensions[1] // 2 : r0 + self.sensor_dimensions[1] // 2,
+                  r1 - self.sensor_dimensions[0] // 2 : r1 + self.sensor_dimensions[0] // 2]
 
         out *= self.n_sensor_levels
         np.rint(out, out = out)
@@ -172,7 +173,7 @@ class NavBySceneFamiliarity(object):
             raise ReachedEndOfTrainingPathException()
 
 
-    def animate(self):
+    def animate(self, frames, interval = 100):
         navcolor = 'darkorchid'
         traincolor = 'dodgerblue'
 
@@ -200,8 +201,8 @@ class NavBySceneFamiliarity(object):
             status_ax.spines[spline].set_visible(False)
 
         status_string = "%s. Running RMSD error: %0.2f"
-        info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes)
-        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes)
+        info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
+        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
 
         scaling_vmax = 1.4
 
@@ -269,7 +270,7 @@ class NavBySceneFamiliarity(object):
                 xpos.append(self.position[0]); ypos.append(self.position[1])
                 path_ln.set_data(xpos, ypos)
 
-                status_txt.set_text(status_string % ("Navigating", self.navigation_error))
+                status_txt.set_text(status_string % ("Navigating - position (%4.1f, %4.1f) heading %.0f°" % (self.position[0], self.position[1], 180. * self.angle / np.pi), self.navigation_error))
 
                 sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
                                     self.position[1] - sens_rect_dims[0] * np.sin(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
@@ -288,7 +289,7 @@ class NavBySceneFamiliarity(object):
             return artist_list
 
         anim = FuncAnimation(fig, upd,
-                             frames = 200, interval = 100, #itertools.repeat(1),
+                             frames = frames, interval = interval, #itertools.repeat(1),
                              blit = True, repeat = False)
         #anim_ref[0] = anim
 
