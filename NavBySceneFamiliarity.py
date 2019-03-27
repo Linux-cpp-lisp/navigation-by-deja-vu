@@ -28,6 +28,10 @@ class OutOfLandscapeBoundsException(NavigatingFailedException):
     def get_reason(self):
         return "agent went too close to boundary of landscape"
 
+SCALING_VMAX = 1.4
+navcolor = 'darkorchid'
+traincolor = 'dodgerblue'
+
 class NavBySceneFamiliarity(object):
     def __init__(self,
                  landscape,
@@ -52,6 +56,7 @@ class NavBySceneFamiliarity(object):
         self.n_sensor_levels = n_sensor_levels - 1
         self.step_size = step_size
         self.angle_familiarity = np.empty(shape = n_test_angles)
+        self.step_familiarity = np.inf
         self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
         self.max_distance_to_training_path = max_distance_to_training_path
 
@@ -130,7 +135,7 @@ class NavBySceneFamiliarity(object):
         self._navigation_error += diff * diff
         self._n_navigation_error += 1
 
-    def step_forward(self):
+    def step_forward(self, fake = False):
         position = self.position
 
         temp = np.empty(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
@@ -159,7 +164,9 @@ class NavBySceneFamiliarity(object):
 
             self.angle_familiarity[a_idex] = np.min(temp_fam)
 
-        angle = self.angles[np.argmin(self.angle_familiarity)]
+        best_idex = np.argmin(self.angle_familiarity)
+        self.step_familiarity = self.angle_familiarity[best_idex]
+        angle = self.angles[best_idex]
 
         new_pos = (position[0] + self.step_size * np.cos(angle),
                    position[1] + self.step_size * np.sin(angle))
@@ -167,15 +174,64 @@ class NavBySceneFamiliarity(object):
         self.position = new_pos
         self.angle = angle
 
-        self.update_error()
+        if not fake:
+            self.update_error()
 
-        if np.linalg.norm(self.training_path[-1] - self.position) < self.step_size:
-            raise ReachedEndOfTrainingPathException()
+            if np.linalg.norm(self.training_path[-1] - self.position) < self.step_size:
+                raise ReachedEndOfTrainingPathException()
+
+
+    # ----- Plotting Code
+    def quiver_plot(self, n_box = 10):
+        # Remember
+        old_pos = self.position
+        old_ang = self.angle
+
+        # Compute
+        dists = self.sensor_dimensions * self.sensor_pixel_dimensions
+        r = np.max(dists) / 2
+        land_size = self.landscape.shape - 2 * r
+
+        box_size = land_size / n_box
+
+        nX, nY = n_box, n_box
+
+        familiarities = np.empty(shape = (nY, nX))
+        U = np.empty(shape = (nY, nX))
+        V = np.empty(shape = (nY, nX))
+
+        for j in range(nY):
+            for i in range(nX):
+                self.position = np.array([r + box_size[1] * 0.5 + box_size[1] * i,
+                                          r + box_size[0] * 0.5 + box_size[0] * j])
+                self.angle = 0
+                self.step_forward(fake = True)
+                familiarities[j, i] = self.step_familiarity
+                U[j, i] = np.cos(self.angle)
+                V[j, i] = np.sin(self.angle)
+
+        # Plot
+        fig = plt.figure()
+        ax = plt.subplot()
+
+        X, Y = r + box_size[1] / 2. + np.mgrid[0:nX] * box_size[1], r + box_size[0] / 2. + np.mgrid[0:nY] * box_size[0]
+
+        ax.imshow(self.landscape, cmap = 'binary', vmax = SCALING_VMAX, origin = 'lower', alpha = 0.4, zorder = 0)
+        im = ax.imshow(familiarities, vmin = 0, origin = 'lower', extent = (r, r + land_size[0], r, r + land_size[1]), alpha = 0.3, cmap = "winter", zorder = 1)
+        ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3, zorder = 2)
+        #im = ax.quiver(X, Y, U, V, familiarities, cmap = "winter", zorder = 2)
+        ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 5, headlength = 5.5, units = 'dots', width = 1.5)
+        fig.colorbar(im)
+
+
+        # Restore positions
+        self.position = old_pos
+        self.angle = old_ang
+
+        return fig
 
 
     def animate(self, frames, interval = 100):
-        navcolor = 'darkorchid'
-        traincolor = 'dodgerblue'
 
         # -- Make figure & axes
         fig = plt.figure(figsize = (10, 8))
@@ -204,7 +260,7 @@ class NavBySceneFamiliarity(object):
         info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
         status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
 
-        scaling_vmax = 1.4
+        scaling_vmax = SCALING_VMAX
 
         sensor_ax.set_title("Sensor Matrix")
         init_sens_mat = np.zeros(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))

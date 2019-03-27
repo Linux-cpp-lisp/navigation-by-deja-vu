@@ -2,6 +2,22 @@ import numpy as np
 cimport numpy as np
 cimport cython
 
+from libc.math cimport fabs
+
+@cython.boundscheck(False)
+def sads(a_np, b_np):
+    assert a_np.shape == b_np.shape
+
+    cdef double [:, :] a = a_np
+    cdef double [:, :] b = b_np
+
+    cdef double diff = 0.0
+
+    for i in range(a_np.shape[0]):
+        for j in range(a_np.shape[1]):
+            diff += fabs(a[i, j] - b[i, j])
+
+    return diff
 
 # Finite-difference method from http://www.cosy.sbg.ac.at/events/parnum05/book/horak1.pdf
 # Parallel Numerical Solution of 2-D Heat Equation, Verena Horak & Peter Gruber (Parallel Numerics ’05, 47-56)
@@ -13,7 +29,7 @@ def diffuse(initial_condition, int nstep, double c = 1.0, double delta_t_factor 
     # Short circut
     if nstep == 0:
         return initial_condition
-    
+
     mat_np = initial_condition.astype(np.float, copy = True)
     mat_new_np = np.empty(shape = initial_condition.shape, dtype = np.float)
 
