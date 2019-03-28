@@ -11,7 +11,7 @@ logger.setLevel(logging.INFO)
 
 from NavBySceneFamiliarity import NavBySceneFamiliarity
 
-import sys, os, glob
+import sys, os, glob, time
 
 from mpi4py import MPI
 
@@ -21,12 +21,13 @@ from mpi4py import MPI
 landscape_dir = sys.argv[1]
 output_dir = sys.argv[2]
 
-def sin_training_path(curveness, start_x, l, n = 200, arclen = 2.0):
-    x = np.linspace(start_x, start_x + l, n * 4)
+def sin_training_path(curveness, start_x, l, arclen = 2.0):
+    # Assume derivative never goes above 4
+    x = np.linspace(start_x, start_x + l, 4 * np.floor(l / arclen))
     y = x - 0.5 * l * curveness * np.sin((x - 0.5 * l - start_x) * np.pi / (0.5 * l))
     dists = np.sqrt((x[1:] - x[:-1])**2 + (y[1:] - y[:-1])**2)
 
-    i = np.searchsorted(np.cumsum(dists), arclen * np.arange(100))
+    i = np.searchsorted(np.cumsum(dists), arclen * np.arange(np.floor(np.sum(dists) / arclen)))
 
     path = np.vstack((x[i], y[i])).T
 
@@ -42,7 +43,7 @@ def run_experiment(id_str, landscape, training_path,
     nsf = NavBySceneFamiliarity(landscape, sensor_dimensions, step_size, **kwargs)
     nsf.train_from_path(training_path)
 
-    nsf.position = training_path[0]
+    nsf.position = training_path[1]
     nsf.angle = 0.
 
     fig, anim = nsf.animate(frames = 150)
@@ -55,13 +56,14 @@ def run_experiment(id_str, landscape, training_path,
 
 
 sensor_dim = (40, 2)
-sensor_pixel_dimensions = [4, 4]
+sensor_pixel_dimensions = [2, 4]
 step_size = 2.0
 
 landscapes = [os.path.abspath(p) for p in glob.glob(landscape_dir + "/*.npy")]
 n_paths = 2
 
-curvenesses = np.linspace(0., 1., n_paths)
+#curvenesses = np.linspace(0., 1., n_paths)
+curveness = [1.]
 
 comm = MPI.COMM_WORLD
 
@@ -69,6 +71,7 @@ os.chdir(output_dir)
 
 if comm.rank == 0:
     logger.info("Starting...")
+    start_time = time.time()
 
 assert len(landscapes) >= comm.size
 
@@ -106,3 +109,4 @@ if comm.rank == 0:
     logger.debug(err_surface.shape)
     np.savez("navigation_errors.npz", errors=err_surface, diffuse_times=diffuse_times)
     logger.info("Done!")
+    logger.info("It took about %i seconds" % int(time.time() - start_time))
