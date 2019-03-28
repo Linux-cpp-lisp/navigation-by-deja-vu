@@ -187,7 +187,8 @@ class NavBySceneFamiliarity(object):
 
 
     # ----- Plotting Code
-    def quiver_plot(self, n_box = 10):
+    def quiver_plot(self, n_box = 10, max_distance = np.inf):
+        max_dist = max_distance
         # Remember
         old_pos = self.position
         old_ang = self.angle
@@ -210,10 +211,17 @@ class NavBySceneFamiliarity(object):
                 self.position = np.array([r + box_size[1] * 0.5 + box_size[1] * i,
                                           r + box_size[0] * 0.5 + box_size[0] * j])
                 self.angle = 0
-                self.step_forward(fake = True)
-                familiarities[j, i] = self.step_familiarity
-                U[j, i] = np.cos(self.angle)
-                V[j, i] = np.sin(self.angle)
+
+                path_dist = np.min(np.linalg.norm(self.training_path - self.position, axis = 1))
+                if path_dist <= max_dist:
+                    self.step_forward(fake = True)
+                    familiarities[j, i] = self.step_familiarity
+                    U[j, i] = np.cos(self.angle)
+                    V[j, i] = np.sin(self.angle)
+                else:
+                    familiarities[j, i] = np.nan
+                    U[j, i] = np.nan
+                    V[j, i] = np.nan
 
         # Plot
         fig = plt.figure()
