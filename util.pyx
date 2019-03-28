@@ -1,3 +1,5 @@
+# cython: language_level=3
+
 import numpy as np
 cimport numpy as np
 cimport cython
@@ -12,6 +14,8 @@ def sads(a_np, b_np):
     cdef double [:, :] b = b_np
 
     cdef double diff = 0.0
+
+    cdef Py_ssize_t i, j
 
     for i in range(a_np.shape[0]):
         for j in range(a_np.shape[1]):
