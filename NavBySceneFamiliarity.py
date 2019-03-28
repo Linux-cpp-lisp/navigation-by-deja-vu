@@ -9,6 +9,9 @@ import skimage
 import itertools
 import math
 
+import pyximport; pyximport.install()
+from util import sads
+
 class StopNavigationException(Exception):
     def get_reason(self):
         raise NotImplementedError()
@@ -50,14 +53,15 @@ class NavBySceneFamiliarity(object):
         self.n_test_angles = n_test_angles
         self.angles = np.linspace(0, 2 * np.pi, self.n_test_angles)
         self.sensor_dimensions = np.asarray(sensor_dimensions)
-        assert np.all(self.sensor_dimensions % 2 == 0)
+        self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
+        assert np.all((self.sensor_dimensions * self.sensor_pixel_dimensions) % 2 == 0)
+
         self.n_sensor_pixels = np.product(self.sensor_dimensions)
         assert n_sensor_levels >= 2
         self.n_sensor_levels = n_sensor_levels - 1
         self.step_size = step_size
         self.angle_familiarity = np.empty(shape = n_test_angles)
         self.step_familiarity = np.inf
-        self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
         self.max_distance_to_training_path = max_distance_to_training_path
 
         self.reset_error()
@@ -105,8 +109,8 @@ class NavBySceneFamiliarity(object):
 
         r0 = out.shape[0] // 2
         r1 = out.shape[1] // 2
-        out = out[r0 - self.sensor_dimensions[1] // 2 : r0 + self.sensor_dimensions[1] // 2,
-                  r1 - self.sensor_dimensions[0] // 2 : r1 + self.sensor_dimensions[0] // 2]
+        out = out[r0 - int(np.floor(self.sensor_dimensions[1] / 2)) : r0 + int(np.ceil(self.sensor_dimensions[1] / 2)),
+                  r1 - int(np.floor(self.sensor_dimensions[0] / 2)) : r1 + int(np.ceil(self.sensor_dimensions[0] / 2))]
 
         out *= self.n_sensor_levels
         np.rint(out, out = out)
@@ -138,7 +142,7 @@ class NavBySceneFamiliarity(object):
     def step_forward(self, fake = False):
         position = self.position
 
-        temp = np.empty(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
+        #temp = np.empty(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
         temp_fam = np.empty_like(self.scene_familiarity)
         temp_fam[:] = np.nan
 
@@ -153,9 +157,10 @@ class NavBySceneFamiliarity(object):
 
             assert len(self.familiar_scenes) == len(self.scene_familiarity)
             for f_index in range(len(self.familiar_scenes)):
-                np.subtract(smat_rot, self.familiar_scenes[f_index], out = temp)
-                np.abs(temp, out = temp)
-                temp_fam[f_index] = np.sum(temp)
+                # np.subtract(smat_rot, self.familiar_scenes[f_index], out = temp)
+                # np.abs(temp, out = temp)
+                # temp_fam[f_index] = np.sum(temp)
+                temp_fam[f_index] = sads(smat_rot, self.familiar_scenes[f_index])
 
                 if temp_fam[f_index] < self.scene_familiarity[f_index]:
                     self.scene_familiarity[f_index] = temp_fam[f_index]
@@ -264,9 +269,9 @@ class NavBySceneFamiliarity(object):
 
         sensor_ax.set_title("Sensor Matrix")
         init_sens_mat = np.zeros(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
-        init_sens_mat[0] = 1.
+        init_sens_mat[0, 0] = 1.
         sensor_im = sensor_ax.imshow(init_sens_mat, cmap = 'binary', vmax = scaling_vmax,
-                                     origin = 'lower', animated = True)
+                                     origin = 'lower', aspect = 'auto', animated = True)
         sensor_ax.xaxis.set_major_locator(plt.NullLocator())
         sensor_ax.yaxis.set_major_locator(plt.NullLocator())
 
