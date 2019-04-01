@@ -187,7 +187,12 @@ class NavBySceneFamiliarity(object):
 
 
     # ----- Plotting Code
-    def quiver_plot(self, n_box = 10, max_distance = np.inf):
+    def quiver_plot(self, **kwargs):
+        data = self.quiver_plot_data(**kwargs)
+        return self.plot_quiver(**data)
+
+
+    def quiver_plot_data(self, n_box = 10, max_distance = np.inf):
         max_dist = max_distance
         # Remember
         old_pos = self.position
@@ -223,23 +228,40 @@ class NavBySceneFamiliarity(object):
                     U[j, i] = np.nan
                     V[j, i] = np.nan
 
+        # Restore positions
+        self.position = old_pos
+        self.angle = old_ang
+
+        return {
+            'U' : U,
+            'V' : V,
+            'familiarities' : familiarities,
+            'box_size' : box_size,
+            'r' : r,
+            'nX' : nX,
+            'nY' : nY,
+            'land_size' : land_size,
+            'training_path' : self.training_path,
+            'landscape' : self.landscape
+        }
+
+
+    @staticmethod
+    def plot_quiver(U, V, familiarities, r, box_size, training_path, landscape,
+                    nX, nY, land_size):
+
         # Plot
         fig = plt.figure()
         ax = plt.subplot()
 
         X, Y = r + box_size[1] / 2. + np.mgrid[0:nX] * box_size[1], r + box_size[0] / 2. + np.mgrid[0:nY] * box_size[0]
 
-        ax.imshow(self.landscape, cmap = 'binary', vmax = SCALING_VMAX, origin = 'lower', alpha = 0.4, zorder = 0)
+        ax.imshow(landscape, cmap = 'binary', vmax = SCALING_VMAX, origin = 'lower', alpha = 0.4, zorder = 0)
         im = ax.imshow(familiarities, vmin = 0, origin = 'lower', extent = (r, r + land_size[0], r, r + land_size[1]), alpha = 0.3, cmap = "winter", zorder = 1)
-        ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3, zorder = 2)
+        ax.plot(training_path[:,0], training_path[:,1], color = traincolor, linewidth = 3, zorder = 2)
         #im = ax.quiver(X, Y, U, V, familiarities, cmap = "winter", zorder = 2)
-        ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 5, headlength = 5.5, units = 'dots', width = 1.5)
+        ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 3, headlength = 4, headaxislength = 3.5)
         fig.colorbar(im)
-
-
-        # Restore positions
-        self.position = old_pos
-        self.angle = old_ang
 
         return fig
 
