@@ -64,10 +64,15 @@ class NavBySceneFamiliarity(object):
         self.step_familiarity = np.inf
         self.max_distance_to_training_path = max_distance_to_training_path
 
+        self.training_path = None
+
         self.reset_error()
 
 
     def train_from_path(self, points):
+        if self.training_path is not None:
+            raise ValueError("Tried to train NavBySceneFamiliarity more than once.")
+
         self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[1], self.sensor_dimensions[0]), dtype = self.landscape.dtype)
 
         angles = points[1:] - points[0:-1]
@@ -81,6 +86,8 @@ class NavBySceneFamiliarity(object):
 
         self.scene_familiarity = np.zeros(shape = len(points))
         self.training_path = points
+
+        self.reset_error()
 
 
     def _make_sensor_mask(self):
@@ -126,18 +133,44 @@ class NavBySceneFamiliarity(object):
         self._navigation_error = 0.0
         self._n_navigation_error = 0
 
+        if self.training_path is not None:
+            # Error temps
+            self._error_tempdiff1 = np.empty(self.training_path.shape)
+            self._error_tempdiff2 = np.empty(len(self.training_path))
+            self._error_tempdiff3 = np.empty(len(self.training_path), dtype = np.bool)
+            self._coverage_array = np.zeros(len(self.training_path))
+
     @property
     def navigation_error(self):
         return np.sqrt(self._navigation_error / self._n_navigation_error)
 
+    @property
+    def percent_recapitulated(self):
+        return np.sum(self._coverage_array) / len(self._coverage_array)
+
     def update_error(self):
-        diff = np.min(np.linalg.norm(self.training_path - self.position, axis = 1))
+        np.subtract(self.training_path, self.position, out = self._error_tempdiff1)
+        self._error_tempdiff1 *= self._error_tempdiff1
+        np.sum(self._error_tempdiff1, axis = 1, out = self._error_tempdiff2)
+        np.sqrt(self._error_tempdiff2, out = self._error_tempdiff2)
+        #np.linalg.norm(self._error_tempdiff1, axis = 1, out = self._error_tempdiff2)
+
+        diff = np.min(self._error_tempdiff2)
 
         if diff > self.max_distance_to_training_path:
             raise TooFarFromTrainingPathException()
 
+        # - RMSD ERROR
         self._navigation_error += diff * diff
         self._n_navigation_error += 1
+
+        # - % COVERAGE ERROR
+        if diff <= self.step_size:
+            # There will be at least one:
+            np.less_equal(self._error_tempdiff2, self.step_size, out = self._error_tempdiff3)
+            # Mark all within step size as covered
+            self._coverage_array[self._error_tempdiff3] = True
+
 
     def step_forward(self, fake = False):
         position = self.position
@@ -291,9 +324,9 @@ class NavBySceneFamiliarity(object):
         for spline in ["top", "bottom", "left", "right"]:
             status_ax.spines[spline].set_visible(False)
 
-        status_string = "%s. Running RMSD error: %0.2f"
+        status_string = "%s. RMSD error: %0.2f; Coverage: %i%%"
         info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
-        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
+        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0, 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
 
         scaling_vmax = SCALING_VMAX
 
@@ -352,7 +385,7 @@ class NavBySceneFamiliarity(object):
                     new_sens_mat = self.get_sensor_mat(self.position, self.angle)
                 except StopNavigationException as e:
                     self._anim_stop_cond = True
-                    status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error))
+                    status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error, 100 * self.percent_recapitulated))
                     status_txt.set_color("red")
 
                     #anim_ref[0].event_source.stop()
@@ -361,7 +394,7 @@ class NavBySceneFamiliarity(object):
                 xpos.append(self.position[0]); ypos.append(self.position[1])
                 path_ln.set_data(xpos, ypos)
 
-                status_txt.set_text(status_string % ("Navigating - position (%4.1f, %4.1f) heading %.0f°" % (self.position[0], self.position[1], 180. * self.angle / np.pi), self.navigation_error))
+                status_txt.set_text(status_string % ("Navigating - position (%4.1f, %4.1f) heading %.0f°" % (self.position[0], self.position[1], 180. * self.angle / np.pi), self.navigation_error, 100*  self.percent_recapitulated))
 
                 sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
                                     self.position[1] - sens_rect_dims[0] * np.sin(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
