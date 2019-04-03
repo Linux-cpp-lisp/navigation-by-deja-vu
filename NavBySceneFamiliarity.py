@@ -8,6 +8,7 @@ import matplotlib.gridspec
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import inset_locator
 import matplotlib.font_manager as fm
+import matplotlib.colors
 
 import skimage
 import itertools
@@ -44,7 +45,7 @@ class NavBySceneFamiliarity(object):
     """
     Args:
         sensor_real_area (tuple: (float, string)): First number is an area,
-            second is the unit to display while plotting.
+            second is the unit to display while plotting (i.e. a length unit).
     """
 
     def __init__(self,
@@ -383,7 +384,7 @@ class NavBySceneFamiliarity(object):
         scalebar_fp = fm.FontProperties(size=11)
         scalebar = AnchoredSizeBar(main_ax.transData,
                                    scalebar_len_px,
-                                   "%0.1f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
+                                   "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
                                    'lower right',
                                    pad = 0.2,
                                    color = 'k',
@@ -393,19 +394,27 @@ class NavBySceneFamiliarity(object):
         scalebar.patch.set_alpha(0.6)
         main_ax.add_artist(scalebar)
 
+        scene_inset_width = 20
+
         scene_ln_x = np.arange(len(self.scene_familiarity))
         scene_min = scene_ax.axvline(0, color = navcolor, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
+        scene_min_box =  matplotlib.patches.Rectangle(xy = (0., 0.),
+                                                   width = 2 * scene_inset_width + 1,
+                                                   height = 0.5 * self.n_sensor_pixels,
+                                                   alpha = 0.05,
+                                                   animated = True,
+                                                   color = navcolor)
+        scene_ax.add_patch(scene_min_box)
         scene_ln, = scene_ax.plot(scene_ln_x, self.scene_familiarity, color = 'k', animated = True, linewidth = 0.75)
         scene_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
         scene_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        scene_inset_width = 20
         scene_inset_ax = inset_locator.inset_axes(scene_ax,
                                     width="35%",
                                     height="30%",
                                     loc = 1)
         scene_inset_ax.set_zorder(5)
-        scene_inset_ax.set_facecolor('w')
+        scene_inset_ax.set_facecolor([min(e + 0.76, 1.0) for e in matplotlib.colors.to_rgb(navcolor)])
         scene_inset_ax.axvline(scene_inset_width, color = navcolor, zorder = 1, alpha = 0.6, linewidth = 1.)
         scene_inset_dat = np.zeros(scene_inset_width * 2 + 1)
         scene_inset_ln, = scene_inset_ax.plot(np.arange(len(scene_inset_dat)), scene_inset_dat, color = 'k', animated = True, linewidth = 0.75, zorder = 10)
@@ -441,7 +450,7 @@ class NavBySceneFamiliarity(object):
         self._anim_stop_cond = False
 
         def upd(frame):
-            artist_list = (path_ln, scene_ln, scene_inset_ax, scene_inset_ln, scene_min, angle_ln, angle_min, sensor_rect, sensor_im, status_txt)
+            artist_list = (path_ln, scene_ln, scene_inset_ax, scene_inset_ln, scene_min, scene_min_box, angle_ln, angle_min, sensor_rect, sensor_im, status_txt)
 
             if not self._anim_stop_cond:
                 # Step forward
@@ -468,6 +477,7 @@ class NavBySceneFamiliarity(object):
                 scene_ln.set_ydata(self.scene_familiarity)
                 s_amin = np.argmin(self.scene_familiarity)
                 scene_min.set_xdata([s_amin, s_amin])
+                scene_min_box.set_xy((s_amin - scene_inset_width, 0.))
 
                 scene_inset_dat[:] = np.nan
                 scene_inset_dat[max(scene_inset_width - s_amin, 0):\
