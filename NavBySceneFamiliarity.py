@@ -1,9 +1,13 @@
 import numpy as np
+
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.ticker import StrMethodFormatter
 import matplotlib.patches
 import matplotlib.gridspec
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+from mpl_toolkits.axes_grid import inset_locator
+import matplotlib.font_manager as fm
 
 import skimage
 import itertools
@@ -31,11 +35,18 @@ class OutOfLandscapeBoundsException(NavigatingFailedException):
     def get_reason(self):
         return "agent went too close to boundary of landscape"
 
-SCALING_VMAX = 1.4
+#SCALING_VMAX = 1.4
+LANDSCAPE_CMAP = 'Greens'
 navcolor = 'darkorchid'
 traincolor = 'dodgerblue'
 
 class NavBySceneFamiliarity(object):
+    """
+    Args:
+        sensor_real_area (tuple: (float, string)): First number is an area,
+            second is the unit to display while plotting.
+    """
+
     def __init__(self,
                  landscape,
                  sensor_dimensions,
@@ -43,7 +54,10 @@ class NavBySceneFamiliarity(object):
                  n_test_angles = 60,
                  sensor_pixel_dimensions = [1, 1],
                  max_distance_to_training_path = np.inf,
-                 n_sensor_levels = 5):
+                 n_sensor_levels = 5,
+                 threshold_factor = 2.,
+                 saccade_degrees = 180.,
+                 sensor_real_area = None):
         self.landscape = landscape
 
         self.position = (0., 0.)
@@ -51,7 +65,14 @@ class NavBySceneFamiliarity(object):
 
         self.familiar_scenes = None
         self.n_test_angles = n_test_angles
-        self.angles = np.linspace(0, 2 * np.pi, self.n_test_angles)
+        self.threshold_factor = threshold_factor
+
+        self.sensor_real_area = sensor_real_area
+
+        self.saccade_degrees = saccade_degrees
+        sd2 = saccade_degrees / 2
+        self.angle_offsets = np.linspace(-(np.pi * sd2/180.), np.pi * sd2/180., self.n_test_angles)
+
         self.sensor_dimensions = np.asarray(sensor_dimensions)
         self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
         assert np.all((self.sensor_dimensions * self.sensor_pixel_dimensions) % 2 == 0)
@@ -165,9 +186,10 @@ class NavBySceneFamiliarity(object):
         self._n_navigation_error += 1
 
         # - % COVERAGE ERROR
-        if diff <= self.step_size:
+        cvge_thresh = self.threshold_factor * self.step_size
+        if diff <= cvge_thresh:
             # There will be at least one:
-            np.less_equal(self._error_tempdiff2, self.step_size, out = self._error_tempdiff3)
+            np.less_equal(self._error_tempdiff2, cvge_thresh, out = self._error_tempdiff3)
             # Mark all within step size as covered
             self._coverage_array[self._error_tempdiff3] = True
 
@@ -182,7 +204,9 @@ class NavBySceneFamiliarity(object):
         self.angle_familiarity[:] = np.nan
         self.scene_familiarity[:] = np.inf
 
-        for a_idex, angle in enumerate(self.angles):
+        for a_idex, angle_offset in enumerate(self.angle_offsets):
+
+            angle = (self.angle + angle_offset) % (2*np.pi)
 
             smat_rot = self.get_sensor_mat(position, angle)
 
@@ -204,7 +228,7 @@ class NavBySceneFamiliarity(object):
 
         best_idex = np.argmin(self.angle_familiarity)
         self.step_familiarity = self.angle_familiarity[best_idex]
-        angle = self.angles[best_idex]
+        angle = (self.angle + self.angle_offsets[best_idex]) % (2 * np.pi)
 
         new_pos = (position[0] + self.step_size * np.cos(angle),
                    position[1] + self.step_size * np.sin(angle))
@@ -215,9 +239,13 @@ class NavBySceneFamiliarity(object):
         if not fake:
             self.update_error()
 
-            if np.linalg.norm(self.training_path[-1] - self.position) < self.step_size:
+            if np.linalg.norm(self.training_path[-1] - self.position) <= self.threshold_factor * self.step_size:
                 raise ReachedEndOfTrainingPathException()
 
+    @property
+    def landscape_real_pixel_size(self):
+        s = np.sqrt(self.sensor_real_area[0] / np.product(self.sensor_dimensions * self.sensor_pixel_dimensions))
+        return s
 
     # ----- Plotting Code
     def quiver_plot(self, **kwargs):
@@ -225,11 +253,16 @@ class NavBySceneFamiliarity(object):
         return self.plot_quiver(**data)
 
 
-    def quiver_plot_data(self, n_box = 10, max_distance = np.inf):
+    def quiver_plot_data(self, n_box = 10, n_test_angles = None, max_distance = np.inf):
+        if n_test_angles is None:
+            n_test_angles = self.n_test_angles
+
         max_dist = max_distance
         # Remember
         old_pos = self.position
         old_ang = self.angle
+        old_ang_offsets = self.angle_offsets
+        old_ang_familiarity = self.angle_familiarity
 
         # Compute
         dists = self.sensor_dimensions * self.sensor_pixel_dimensions
@@ -243,6 +276,10 @@ class NavBySceneFamiliarity(object):
         familiarities = np.empty(shape = (nY, nX))
         U = np.empty(shape = (nY, nX))
         V = np.empty(shape = (nY, nX))
+
+        # Set 360 angle offsets
+        self.angle_offsets = np.linspace(-np.pi, np.pi, n_test_angles)
+        self.angle_familiarity = np.empty(len(self.angle_offsets))
 
         for j in range(nY):
             for i in range(nX):
@@ -264,6 +301,8 @@ class NavBySceneFamiliarity(object):
         # Restore positions
         self.position = old_pos
         self.angle = old_ang
+        self.angle_offsets = old_ang_offsets
+        self.angle_familiarity = old_ang_familiarity
 
         return {
             'U' : U,
@@ -293,7 +332,7 @@ class NavBySceneFamiliarity(object):
         im = ax.imshow(familiarities, vmin = 0, origin = 'lower', extent = (r, r + land_size[0], r, r + land_size[1]), alpha = 0.3, cmap = "winter", zorder = 1)
         ax.plot(training_path[:,0], training_path[:,1], color = traincolor, linewidth = 3, zorder = 2)
         #im = ax.quiver(X, Y, U, V, familiarities, cmap = "winter", zorder = 2)
-        ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 3, headlength = 4, headaxislength = 3.5)
+        ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 5, headlength = 4, headaxislength = 3.5)
         fig.colorbar(im)
 
         return fig
@@ -328,30 +367,44 @@ class NavBySceneFamiliarity(object):
         info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
         status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0, 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
 
-        scaling_vmax = SCALING_VMAX
-
         sensor_ax.set_title("Sensor Matrix")
         init_sens_mat = np.zeros(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
         init_sens_mat[0, 0] = 1.
-        sensor_im = sensor_ax.imshow(init_sens_mat, cmap = 'binary', vmax = scaling_vmax,
+        sensor_im = sensor_ax.imshow(init_sens_mat, cmap = LANDSCAPE_CMAP, vmax = 1.0, alpha = 0.7,
                                      origin = 'lower', aspect = 'auto', animated = True)
         sensor_ax.xaxis.set_major_locator(plt.NullLocator())
         sensor_ax.yaxis.set_major_locator(plt.NullLocator())
 
         # -- Plot basic elements
-        main_ax.imshow(self.landscape, cmap = 'binary', vmax = scaling_vmax, origin = 'lower')
+        main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.6)
         main_ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3)
 
+        scalebar_len_px = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions)
+        scalebar_fp = fm.FontProperties(size=11)
+        scalebar = AnchoredSizeBar(main_ax.transData,
+                                   scalebar_len_px,
+                                   "%0.1f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
+                                   'lower right',
+                                   pad = 0.2,
+                                   color = 'k',
+                                   frameon = True,
+                                   size_vertical = 2,
+                                   fontproperties = scalebar_fp)
+        scalebar.patch.set_alpha(0.6)
+        main_ax.add_artist(scalebar)
+
         scene_ln_x = np.arange(len(self.scene_familiarity))
-        scene_min = scene_ax.axvline(0, color = navcolor, animated = True, zorder = 0, alpha = 0.7, linewidth = 1)
-        scene_ln, = scene_ax.plot(scene_ln_x, self.scene_familiarity, color = 'k', animated = True)
-        scene_ax.set_ylim((0, self.n_sensor_pixels))
+        scene_min = scene_ax.axvline(0, color = navcolor, animated = True, zorder = 0, alpha = 0.6, linewidth = 1)
+        scene_ln, = scene_ax.plot(scene_ln_x, self.scene_familiarity, color = 'k', animated = True, linewidth = 0.75)
+        scene_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
         scene_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        angle_min = angle_ax.axvline(0, color = navcolor, animated = True, zorder = 0, alpha = 0.7, linewidth = 1)
-        angle_ln_x = 180. * self.angles / np.pi
+        
+
+        angle_min = angle_ax.axvline(0, color = navcolor, animated = True, zorder = 0, alpha = 0.6, linewidth = 1)
+        angle_ln_x = 180. * self.angle_offsets / np.pi
         angle_ln, = angle_ax.plot(angle_ln_x, self.angle_familiarity, color = 'k', animated = True)
-        angle_ax.set_ylim((0, self.n_sensor_pixels))
+        angle_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
         angle_ax.xaxis.set_major_formatter(StrMethodFormatter(u"{x:.0f}°"))
         angle_ax.yaxis.set_major_locator(plt.NullLocator())
 
@@ -405,7 +458,7 @@ class NavBySceneFamiliarity(object):
                 scene_min.set_xdata([s_amin, s_amin])
 
                 angle_ln.set_ydata(self.angle_familiarity)
-                a_amin = 360. * np.argmin(self.angle_familiarity) / len(self.angle_familiarity)
+                a_amin = 180. * self.angle_offsets[np.argmin(self.angle_familiarity)] / np.pi
                 angle_min.set_xdata([a_amin, a_amin])
 
                 sensor_im.set_array(new_sens_mat)
