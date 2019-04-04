@@ -20,10 +20,14 @@ from util import sads
 class StopNavigationException(Exception):
     def get_reason(self):
         raise NotImplementedError()
+    def get_code(self):
+        raise NotImplementedError()
 
 class ReachedEndOfTrainingPathException(StopNavigationException):
     def get_reason(self):
         return "agent reached end of training path"
+    def get_code(self):
+        return 1
 
 class NavigatingFailedException(StopNavigationException):
     pass
@@ -31,10 +35,14 @@ class NavigatingFailedException(StopNavigationException):
 class TooFarFromTrainingPathException(NavigatingFailedException):
     def get_reason(self):
         return "agent went too far from training path"
+    def get_code(self):
+        return -1
 
 class OutOfLandscapeBoundsException(NavigatingFailedException):
     def get_reason(self):
         return "agent went too close to boundary of landscape"
+    def get_code(self):
+        return -2
 
 #SCALING_VMAX = 1.4
 LANDSCAPE_CMAP = 'Greens'
@@ -80,7 +88,7 @@ class NavBySceneFamiliarity(object):
 
         self.n_sensor_pixels = np.product(self.sensor_dimensions)
         assert n_sensor_levels >= 2
-        self.n_sensor_levels = n_sensor_levels - 1
+        self.n_sensor_levels = n_sensor_levels
         self.step_size = step_size
         self.angle_familiarity = np.empty(shape = n_test_angles)
         self.step_familiarity = np.inf
@@ -141,9 +149,9 @@ class NavBySceneFamiliarity(object):
         out = out[r0 - int(np.floor(self.sensor_dimensions[1] / 2)) : r0 + int(np.ceil(self.sensor_dimensions[1] / 2)),
                   r1 - int(np.floor(self.sensor_dimensions[0] / 2)) : r1 + int(np.ceil(self.sensor_dimensions[0] / 2))]
 
-        out *= self.n_sensor_levels
+        out *= (self.n_sensor_levels - 1)
         np.rint(out, out = out)
-        out /= self.n_sensor_levels
+        out /= (self.n_sensor_levels - 1)
 
         #out[self._mask] = 0.
 
