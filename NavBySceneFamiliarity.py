@@ -160,6 +160,8 @@ class NavBySceneFamiliarity(object):
 
 
     def reset_error(self):
+        self.stopped_with_exception = None
+
         self._navigation_error = 0.0
         self._n_navigation_error = 0
 
@@ -337,7 +339,7 @@ class NavBySceneFamiliarity(object):
 
         X, Y = r + box_size[1] / 2. + np.mgrid[0:nX] * box_size[1], r + box_size[0] / 2. + np.mgrid[0:nY] * box_size[0]
 
-        ax.imshow(landscape, cmap = 'binary', vmax = SCALING_VMAX, origin = 'lower', alpha = 0.4, zorder = 0)
+        ax.imshow(landscape, cmap = LANDSCAPE_CMAP, origin = 'lower', alpha = 0.4, zorder = 0)
         im = ax.imshow(familiarities, vmin = 0, origin = 'lower', extent = (r, r + land_size[0], r, r + land_size[1]), alpha = 0.3, cmap = "winter", zorder = 1)
         ax.plot(training_path[:,0], training_path[:,1], color = traincolor, linewidth = 3, zorder = 2)
         #im = ax.quiver(X, Y, U, V, familiarities, cmap = "winter", zorder = 2)
@@ -467,6 +469,7 @@ class NavBySceneFamiliarity(object):
                     new_sens_mat = self.get_sensor_mat(self.position, self.angle)
                 except StopNavigationException as e:
                     self._anim_stop_cond = True
+                    self.stopped_with_exception = e
                     status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error, 100 * self.percent_recapitulated))
                     status_txt.set_color("red")
 
