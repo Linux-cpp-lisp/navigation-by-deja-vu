@@ -14,8 +14,7 @@ import skimage
 import itertools
 import math
 
-import pyximport; pyximport.install()
-from util import sads
+from navsim.util import sads
 
 class StopNavigationException(Exception):
     def get_reason(self):

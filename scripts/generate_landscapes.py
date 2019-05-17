@@ -1,4 +1,4 @@
-from GenerateLandscape import *
+from navsim.generate_landscapes import *
 
 # Call with folder as first argument
 # generate_landscapes.py size out/

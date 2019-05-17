@@ -7,7 +7,7 @@ import itertools
 import math
 import sys
 
-from NavBySceneFamiliarity import NavBySceneFamiliarity
+from navsim import NavBySceneFamiliarity
 
 landscape = np.load("../../data/test_set/landscape-diffuse-450.npy")
 

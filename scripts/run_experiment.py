@@ -54,7 +54,7 @@ logging.basicConfig()
 logger = logging.getLogger('experiments')
 logger.setLevel(logging.INFO)
 
-from NavBySceneFamiliarity import NavBySceneFamiliarity
+from navsim import NavBySceneFamiliarity
 
 import sys, os, glob, time
 import pickle

@@ -2,8 +2,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
-import pyximport; pyximport.install()
-from util import diffuse
+from navsim.util import diffuse
 
 
 def random_squares(shape, s, n, value = 1):
