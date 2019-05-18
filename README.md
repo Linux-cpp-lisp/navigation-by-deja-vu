@@ -1,5 +1,6 @@
-Navigation by Deja Vu
-----
+# Navigation by Déjà Vu
+
+![](example.gif)
 
 Simulation of the navigation-by-scene-familiarity mechanism with a local sensor. This is analogous to the scorpion's ground-sensing pectines.
 
