@@ -16,6 +16,8 @@ OUTFILE_NAME = 'output.npz'
 VARIABLE_DIRECTORY_NESTING_LEVELS = 3
 FRAME_FACTOR = 1.2
 TRAINING_SCENE_ARCLEN_FACTOR = 0.5
+QUIVER_DIST_FACTOR = 10
+N_QUIVER_BOX = 40
 
 # --------- EXPERIMENTAL VARIABLES ----
 
@@ -37,9 +39,9 @@ defaults = {
 }
 
 short_names = {
-    'training_path_curve' : ('curve', '%0.2f'),
-    'saccade_degrees' : ('saccade', '%i'),
-    'n_sensor_levels' : ('greys', '%i'),
+    'training_path_curve' : ('curve', '{0:0.2f}'),
+    'saccade_degrees' : ('saccade', '{0}'),
+    'n_sensor_levels' : ('greys', '{0}'),
     'sensor_pixel_dimensions' : ('pxdim', '{0[0]}x{0[1]}'),
     'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}')
 }
@@ -52,7 +54,7 @@ assert VARIABLE_DIRECTORY_NESTING_LEVELS < len(variable_dict)
 import logging
 logging.basicConfig()
 logger = logging.getLogger('experiments')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 from navsim import NavBySceneFamiliarity
 
@@ -83,7 +85,7 @@ def sin_training_path(curveness, start_x, l, arclen = 2.0):
 
 
 def run_experiment(save_to, id_str, training_path, nsf_params,
-                   n_quiver_box = 20, frames = None,
+                   n_quiver_box = N_QUIVER_BOX, frames = None,
                    starting_pos = None, starting_angle = None):
 
     nsf_params = dict(nsf_params)
@@ -98,10 +100,11 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
     fig, anim = nsf.animate(frames = frames)
     anim.save(save_to + "/nav-%s.mp4" % id_str)
 
-    quiv_dat = nsf.quiver_plot_data(n_box = n_quiver_box)
+    quiv_dat = nsf.quiver_plot_data(n_box = n_quiver_box, max_distance = QUIVER_DIST_FACTOR * nsf_params['step_size'])
     quiv = nsf.plot_quiver(**quiv_dat)
-    pickle.dump(quiv_dat, save_to + "/quiv-%s.pkl" % id_str)
-    quiv.savefig(save_to + "/quiv-%s.png" % id_str)
+    with open(save_to + "/quiv-%s.pkl" % id_str, 'wb') as qf:
+        pickle.dump(quiv_dat, qf)
+    quiv.savefig(save_to + "/quiv-%s.png" % id_str, dpi = 200)
 
     return nsf.navigation_error, nsf.percent_recapitulated, nsf.stopped_with_exception
 
@@ -138,17 +141,26 @@ if comm.rank == 0:
     logger.info("Making output directories...")
     # Deal with output dir
     if os.path.isdir(output_dir):
-        if os.path.exists(output_dir + "/" + OUTFILE_NAME):
-            logger.info("Clearing old output directory...")
-            shutil.rmtree(output_dir)
-        elif not os.listdir(output_dir):
+        if not os.listdir(output_dir):
+            # It's empty, use it
             pass
         else:
-            logger.error("Bad output dir")
-            comm.abort()
-    else:
-        logger.info("Creating output dir...")
-        os.mkdir(output_dir)
+            logger.warning("Output dir exists; appending number")
+            i = 1
+            while True:
+                if i >= 100:
+                    logger.error("Couldn't make output dir that doesn't already exist")
+                    comm.Abort()
+                dirname = output_dir.rstrip('/') + ("-%02i" % i) + '/'
+
+                if not os.path.exists(dirname):
+                    output_dir = dirname
+                    break
+                else:
+                    i += 1
+
+    logger.info("Creating output dir...")
+    os.mkdir(output_dir)
 
     # Create trial dirs
     os.mkdir(output_dir + "/trials/")
@@ -159,11 +171,12 @@ if comm.rank == 0:
         for diff_time in variable_dict['landscape_diffuse_time']:
             os.mkdir(cdir + "/landscape_diffuse_time_%i" % diff_time)
 
-
     logger.info("Starting...")
     logger.info("Running a total of %i trials over %i processes" % (n_trials, comm.size))
     # Log start time
     start_time = time.time()
+
+comm.barrier()
 
 os.chdir(output_dir)
 
@@ -171,8 +184,13 @@ os.chdir(output_dir)
 part_trials = np.array_split(trials, comm.size)
 my_trials = part_trials[comm.rank]
 
+logger.debug("Task %i has %i trials" % (comm.rank, len(my_trials)))
+
 # Set up result arrays
-my_variable_values = [np.empty(shape = len(my_trials), dtype = variable_dict[v].dtype) for v in variables]
+my_variable_values = [np.empty(
+                        shape = (len(my_trials),) + variable_dict[v].shape[1:],
+                        dtype = variable_dict[v].dtype
+                      ) for v in variables]
 my_naverrs = np.empty(shape = len(my_trials))
 my_coverages = np.empty(shape = len(my_trials))
 
@@ -181,10 +199,7 @@ for i, trial_vals in enumerate(my_trials):
     trial = dict(zip(variables, trial_vals))
 
     id_str = "_".join("%s-%s" % (short_names[v][0], short_names[v][1].format(trial[v])) for v in id_str_vars)
-    logger.info("Task %i running experiment '%s'" % (comm.rank, id_str))
-
-    # - Save variable values for this trial
-    my_variable_values.append(trial_vals)
+    logger.info("Task %i running its trial %i/%i: experiment '%s'" % (comm.rank, i + 1, len(my_trials), id_str))
 
     # - Load/create stuff
     landscape_class = trial.pop("landscape_class")
@@ -200,8 +215,10 @@ for i, trial_vals in enumerate(my_trials):
 
     frames = int(FRAME_FACTOR * TRAINING_SCENE_ARCLEN_FACTOR * len(tpath))
 
+    save_to = "trials/landscape_class_%s/landscape_diffuse_time_%i/" % (landscape_class, landscape_diff_time)
+    logging.debug("Task %i saving to '%s'", comm.rank, save_to)
     my_naverr, my_coverage, my_status = run_experiment(
-                                       "/trials/landscape_class_%s/landscape_diffuse_time_%i/" % (landscape_class, landscape_diff_time),
+                                       save_to,
                                        id_str,
                                        training_path = tpath,
                                        nsf_params = trial,
@@ -219,9 +236,11 @@ for i, trial_vals in enumerate(my_trials):
 gathered = comm.gather((my_variable_values, my_naverrs, my_coverages), root = 0)
 
 if comm.rank == 0:
-    all_naverrs = np.vstack(tuple(e[1] for e in gathered))
-    all_coverage = np.vstack(tuple(e[2] for e in gathered))
-    all_vars = [np.vstack(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
+    all_naverrs = np.concatenate(tuple(e[1] for e in gathered))
+    all_coverage = np.concatenate(tuple(e[2] for e in gathered))
+    all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
+
+    assert len(all_naverrs) == len(all_coverage) == len(all_vars[0])
 
     to_save = dict(zip(variables, all_vars))
     to_save["navigation_errors"] = all_naverrs
@@ -231,5 +250,5 @@ if comm.rank == 0:
     # Also save the same data in MATLAB format for convinience
     scipy.io.savemat("output.mat", to_save)
 
-    logger.info("Done!")
+    logger.info("Done! Finished %i trials" % len(all_naverrs))
     logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
