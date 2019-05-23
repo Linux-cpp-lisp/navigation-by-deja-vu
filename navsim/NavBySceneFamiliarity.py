@@ -13,6 +13,7 @@ import matplotlib.colors
 import skimage
 import itertools
 import math
+import warnings
 
 from navsim.util import sads
 
@@ -345,6 +346,8 @@ class NavBySceneFamiliarity(object):
         ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 5, headlength = 4, headaxislength = 3.5)
         fig.colorbar(im)
 
+        fig.tight_layout()
+
         return fig
 
 
@@ -508,6 +511,10 @@ class NavBySceneFamiliarity(object):
                              blit = True, repeat = False)
         #anim_ref[0] = anim
 
-        fig.tight_layout()
+        # Suppress the warning about unsupported axes for tight layout
+        # See https://stackoverflow.com/questions/22227165/catch-matplotlib-warning#34622563
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+            fig.tight_layout()
 
         return fig, anim
