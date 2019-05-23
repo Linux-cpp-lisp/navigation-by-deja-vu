@@ -141,23 +141,19 @@ if comm.rank == 0:
     logger.info("Making output directories...")
     # Deal with output dir
     if os.path.isdir(output_dir):
-        if not os.listdir(output_dir):
-            # It's empty, use it
-            pass
-        else:
-            logger.warning("Output dir exists; appending number")
-            i = 1
-            while True:
-                if i >= 100:
-                    logger.error("Couldn't make output dir that doesn't already exist")
-                    comm.Abort()
-                dirname = output_dir.rstrip('/') + ("-%02i" % i) + '/'
+        logger.warning("Output dir exists; appending number")
+        i = 1
+        while True:
+            if i >= 100:
+                logger.error("Couldn't make output dir that doesn't already exist")
+                comm.Abort()
+            dirname = output_dir.rstrip('/') + ("-%02i" % i) + '/'
 
-                if not os.path.exists(dirname):
-                    output_dir = dirname
-                    break
-                else:
-                    i += 1
+            if not os.path.exists(dirname):
+                output_dir = dirname
+                break
+            else:
+                i += 1
 
     logger.info("Creating output dir...")
     os.mkdir(output_dir)
