@@ -189,6 +189,7 @@ my_variable_values = [np.empty(
                       ) for v in variables]
 my_naverrs = np.empty(shape = len(my_trials))
 my_coverages = np.empty(shape = len(my_trials))
+my_statuses = np.empty(shape = len(my_trials), dtype = np.int)
 
 for i, trial_vals in enumerate(my_trials):
     # - Set up dict for convinience
@@ -227,13 +228,15 @@ for i, trial_vals in enumerate(my_trials):
 
     my_naverrs[i] = my_naverr
     my_coverages[i] = my_coverage
+    my_statuses[i] = (0 if my_status is None else my_status.get_code())
 
 
-gathered = comm.gather((my_variable_values, my_naverrs, my_coverages), root = 0)
+gathered = comm.gather((my_variable_values, my_naverrs, my_coverages, my_statuses), root = 0)
 
 if comm.rank == 0:
     all_naverrs = np.concatenate(tuple(e[1] for e in gathered))
     all_coverage = np.concatenate(tuple(e[2] for e in gathered))
+    all_statuses = np.concatenate(tuple(e[3] for e in gathered))
     all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
 
     assert len(all_naverrs) == len(all_coverage) == len(all_vars[0])
@@ -241,6 +244,7 @@ if comm.rank == 0:
     to_save = dict(zip(variables, all_vars))
     to_save["navigation_errors"] = all_naverrs
     to_save["path_coverages"] = all_coverage
+    to_save["stop_statuses"] = all_statuses
 
     np.savez("output.npz", **to_save)
     # Also save the same data in MATLAB format for convinience
