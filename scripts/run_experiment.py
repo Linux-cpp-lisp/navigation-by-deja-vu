@@ -141,23 +141,19 @@ if comm.rank == 0:
     logger.info("Making output directories...")
     # Deal with output dir
     if os.path.isdir(output_dir):
-        if not os.listdir(output_dir):
-            # It's empty, use it
-            pass
-        else:
-            logger.warning("Output dir exists; appending number")
-            i = 1
-            while True:
-                if i >= 100:
-                    logger.error("Couldn't make output dir that doesn't already exist")
-                    comm.Abort()
-                dirname = output_dir.rstrip('/') + ("-%02i" % i) + '/'
+        logger.warning("Output dir exists; appending number")
+        i = 1
+        while True:
+            if i >= 100:
+                logger.error("Couldn't make output dir that doesn't already exist")
+                comm.Abort()
+            dirname = output_dir.rstrip('/') + ("-%02i" % i) + '/'
 
-                if not os.path.exists(dirname):
-                    output_dir = dirname
-                    break
-                else:
-                    i += 1
+            if not os.path.exists(dirname):
+                output_dir = dirname
+                break
+            else:
+                i += 1
 
     logger.info("Creating output dir...")
     os.mkdir(output_dir)
@@ -176,7 +172,7 @@ if comm.rank == 0:
     # Log start time
     start_time = time.time()
 
-comm.barrier()
+output_dir = comm.bcast(output_dir, root = 0)
 
 os.chdir(output_dir)
 
@@ -216,7 +212,7 @@ for i, trial_vals in enumerate(my_trials):
     frames = int(FRAME_FACTOR * TRAINING_SCENE_ARCLEN_FACTOR * len(tpath))
 
     save_to = "trials/landscape_class_%s/landscape_diffuse_time_%i/" % (landscape_class, landscape_diff_time)
-    logging.debug("Task %i saving to '%s'", comm.rank, save_to)
+    logger.debug("Task %i saving to '%s'", comm.rank, save_to)
     my_naverr, my_coverage, my_status = run_experiment(
                                        save_to,
                                        id_str,
