@@ -162,6 +162,7 @@ class NavBySceneFamiliarity(object):
     def reset_error(self):
         self.stopped_with_exception = None
 
+        self.navigated_for_frames = 0
         self._navigation_error = 0.0
         self._n_navigation_error = 0
 
@@ -181,6 +182,8 @@ class NavBySceneFamiliarity(object):
         return np.sum(self._coverage_array) / len(self._coverage_array)
 
     def update_error(self):
+        self.navigated_for_frames += 1
+
         np.subtract(self.training_path, self.position, out = self._error_tempdiff1)
         self._error_tempdiff1 *= self._error_tempdiff1
         np.sum(self._error_tempdiff1, axis = 1, out = self._error_tempdiff2)

@@ -46,6 +46,13 @@ short_names = {
     'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}')
 }
 
+result_variables = {
+    'path_coverage' : np.float,
+    'rmsd_error' : np.float,
+    'completed_frames' : np.int,
+    'stop_status' : np.int
+}
+
 assert VARIABLE_DIRECTORY_NESTING_LEVELS < len(variable_dict)
 
 # ---------------------- RUN STUFF ----------------------------------------
@@ -106,7 +113,15 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
         pickle.dump(quiv_dat, qf)
     quiv.savefig(save_to + "/quiv-%s.png" % id_str, dpi = 200)
 
-    return nsf.navigation_error, nsf.percent_recapitulated, nsf.stopped_with_exception
+    my_status = nsf.stopped_with_exception
+    my_status = (0 if my_status is None else my_status.get_code())
+
+    return {
+        'path_coverage' : nsf.percent_recapitulated,
+        'rmsd_error' : nsf.navigation_error,
+        'completed_frames' : nsf.navigated_for_frames
+        'stop_status' : my_status
+    }
 
 
 for k in variable_dict:
@@ -187,9 +202,9 @@ my_variable_values = [np.empty(
                         shape = (len(my_trials),) + variable_dict[v].shape[1:],
                         dtype = variable_dict[v].dtype
                       ) for v in variables]
-my_naverrs = np.empty(shape = len(my_trials))
-my_coverages = np.empty(shape = len(my_trials))
-my_statuses = np.empty(shape = len(my_trials), dtype = np.int)
+my_results = {}
+for resvar in result_variables:
+    my_results[resvar] = np.empty(shape = len(my_trials), dtype = result_variables[resvar])
 
 for i, trial_vals in enumerate(my_trials):
     # - Set up dict for convinience
@@ -214,37 +229,33 @@ for i, trial_vals in enumerate(my_trials):
 
     save_to = "trials/landscape_class_%s/landscape_diffuse_time_%i/" % (landscape_class, landscape_diff_time)
     logger.debug("Task %i saving to '%s'", comm.rank, save_to)
-    my_naverr, my_coverage, my_status = run_experiment(
-                                       save_to,
-                                       id_str,
-                                       training_path = tpath,
-                                       nsf_params = trial,
-                                       frames = frames,
-                                       starting_pos = tpath[1],
-                                       starting_angle = np.arctan2(*list(tpath[2] - tpath[1])) % 2 * np.pi)
+    trial_result = run_experiment(
+                       save_to,
+                       id_str,
+                       training_path = tpath,
+                       nsf_params = trial,
+                       frames = frames,
+                       starting_pos = tpath[1],
+                       starting_angle = np.arctan2(*list(tpath[2] - tpath[1])) % 2 * np.pi
+                   )
 
     for vi, val in enumerate(trial_vals):
         my_variable_values[vi][i] = val
 
-    my_naverrs[i] = my_naverr
-    my_coverages[i] = my_coverage
-    my_statuses[i] = (0 if my_status is None else my_status.get_code())
+    for resvar in result_variables.keys():
+        my_results[resvar][i] = trial_result[resvar]
 
 
-gathered = comm.gather((my_variable_values, my_naverrs, my_coverages, my_statuses), root = 0)
+gathered = comm.gather((my_variable_values, my_results), root = 0)
 
 if comm.rank == 0:
-    all_naverrs = np.concatenate(tuple(e[1] for e in gathered))
-    all_coverage = np.concatenate(tuple(e[2] for e in gathered))
-    all_statuses = np.concatenate(tuple(e[3] for e in gathered))
+    all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar]) for e in gathered)) for resvar in result_variables.keys()])
     all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
 
     assert len(all_naverrs) == len(all_coverage) == len(all_vars[0])
 
     to_save = dict(zip(variables, all_vars))
-    to_save["navigation_errors"] = all_naverrs
-    to_save["path_coverages"] = all_coverage
-    to_save["stop_statuses"] = all_statuses
+    to_save.update(all_results)
 
     np.savez("output.npz", **to_save)
     # Also save the same data in MATLAB format for convinience
