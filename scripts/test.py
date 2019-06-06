@@ -21,7 +21,7 @@ nsf = NavBySceneFamiliarity(landscape, (40, 2), 2.0, sensor_pixel_dimensions = [
 
 def sin_training_path(curveness, start_x, l, arclen = 2.0):
     # Assume derivative never goes above 4
-    x = np.linspace(start_x, start_x + l, 4 * np.floor(l / arclen))
+    x = np.linspace(start_x, start_x + l, 4 * int(np.floor(l / arclen)))
     y = x - 0.5 * l * curveness * np.sin((x - 0.5 * l - start_x) * np.pi / (0.5 * l))
     dists = np.sqrt((x[1:] - x[:-1])**2 + (y[1:] - y[:-1])**2)
 

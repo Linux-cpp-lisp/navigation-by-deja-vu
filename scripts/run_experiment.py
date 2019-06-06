@@ -119,7 +119,7 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
     return {
         'path_coverage' : nsf.percent_recapitulated,
         'rmsd_error' : nsf.navigation_error,
-        'completed_frames' : nsf.navigated_for_frames
+        'completed_frames' : nsf.navigated_for_frames,
         'stop_status' : my_status
     }
 
@@ -249,7 +249,7 @@ for i, trial_vals in enumerate(my_trials):
 gathered = comm.gather((my_variable_values, my_results), root = 0)
 
 if comm.rank == 0:
-    all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar]) for e in gathered)) for resvar in result_variables.keys()])
+    all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar] for e in gathered))) for resvar in result_variables.keys()])
     all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
 
     assert len(all_naverrs) == len(all_coverage) == len(all_vars[0])
