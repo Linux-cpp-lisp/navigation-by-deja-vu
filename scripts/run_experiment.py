@@ -252,7 +252,8 @@ if comm.rank == 0:
     all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar] for e in gathered))) for resvar in result_variables.keys()])
     all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
 
-    assert len(all_naverrs) == len(all_coverage) == len(all_vars[0])
+    for resarr in all_results.values():
+        assert len(all_vars[0]) == len(resarr)
 
     to_save = dict(zip(variables, all_vars))
     to_save.update(all_results)
@@ -261,5 +262,5 @@ if comm.rank == 0:
     # Also save the same data in MATLAB format for convinience
     scipy.io.savemat("output.mat", to_save)
 
-    logger.info("Done! Finished %i trials" % len(all_naverrs))
+    logger.info("Done! Finished %i trials" % len(all_results[0]))
     logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
