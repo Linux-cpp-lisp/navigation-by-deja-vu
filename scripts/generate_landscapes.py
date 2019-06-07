@@ -1,28 +1,28 @@
 from navsim.generate_landscapes import *
 
 # Call with folder as first argument
-# generate_landscapes.py size out/
+# generate_landscapes.py orig_landscape.png "[diff-time-1] [diff-time-2]" out/
 
 import os, sys
 import skimage.io
 
-os.chdir(sys.argv[2])
+orig_name = sys.argv[1]
 
-size = int(sys.argv[1])
-assert size % 10 == 0
+print("Reading original...")
+orig = np.load(orig_name)
+
+diffuse_times = map(int, sys.argv[2].split())
+
+os.chdir(sys.argv[3])
 
 # -- Generate Original Image
-
-print("Generating original...")
-
-orig = checkerboard(size, size // 10)
 
 skimage.io.imsave("original-landscape.png", orig)
 
 # -- Generate Diffused Ones
 
 # Times 0 through 2000
-diffuse_times = np.arange(0, 10) * 10
+
 for i, diffuse_time in enumerate(diffuse_times):
     print("Generating landscape %0.2i/%0.2i (diffuse time: %0.2i)" % (i, len(diffuse_times), diffuse_time))
 

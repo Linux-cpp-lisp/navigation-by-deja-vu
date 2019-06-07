@@ -20,30 +20,50 @@ QUIVER_DIST_FACTOR = 10
 N_QUIVER_BOX = 40
 
 # --------- EXPERIMENTAL VARIABLES ----
+# ---- TEST VARS ----
+# variable_dict = {
+#     'landscape_class' : ["test_set"], # At this point, just checkerboard = 1
+#     'landscape_diffuse_time' : [450], #
+#     'training_path_curve' : [1.0],
+#     'saccade_degrees' : [90.],
+#     'n_sensor_levels' : [4, 8],
+#     'sensor_dimensions' : [(40, 1)],
+#     'sensor_pixel_dimensions' : [(2, 4)],
+#     'start_offset' : [np.array([3.5, 3.5])]
+# }
 
+# --- REAL VARS ---
 variable_dict = {
-    'landscape_class' : ["test_set"], # At this point, just checkerboard = 1
-    'landscape_diffuse_time' : [150, 450], #
-    'training_path_curve' : [0.0, 1.0],
-    'saccade_degrees' : [90.],
-    'n_sensor_levels' : [6],
-    'sensor_dimensions' : [(40, 1)],
-    'sensor_pixel_dimensions' : [(2, 4)],
+    'landscape_class' : ["checker", "irreg"], # At this point, just checkerboard = 1
+    'landscape_diffuse_time' : [0, 100, 200, 500, 1350], # These will be different and higher
+    'training_path_curve' : [0.0, 0.5, 1.0],
+    'sensor_dimensions' : [(40, 4), (40, 2), (40, 1), (20, 1), (10, 1)],
+    # These are chosen to hold total sensor area constant
+    # want at least some blurring to avoid weird effects at the highest resultion,
+    # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
+    'sensor_pixel_dimensions' : [(2, 2), (2, 4), (2, 8), (4, 8), (8, 8)],
+    'n_sensor_levels' : [2, 4, 8, 16],
+    'saccade_degrees' : [30., 60., 90.],
+    # Sensor is 80px wide, so 1/16th width is 5px. We'll divide that a little
+    # in each direction. (3.5 is the side length of a right isoceles with
+    # a hypotenuse of 5.)
+    'start_offset' : [np.array([0., 0.]), np.array([3.5, 3.5])] # Units are px
 }
 
 defaults = {
-    'n_test_angles' : 25,
+    'angular_resolution' : 3, #degrees
     'max_distance_to_training_path' : 80,
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
     'step_size' : 2.0,
 }
 
 short_names = {
-    'training_path_curve' : ('curve', '{0:0.2f}'),
-    'saccade_degrees' : ('saccade', '{0}'),
-    'n_sensor_levels' : ('greys', '{0}'),
+    'training_path_curve' : ('crv', '{0:0.2f}'),
+    'saccade_degrees' : ('sacc', '{0:0.0f}'),
+    'n_sensor_levels' : ('grays', '{0}'),
     'sensor_pixel_dimensions' : ('pxdim', '{0[0]}x{0[1]}'),
-    'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}')
+    'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}'),
+    'start_offset' : ('ofst', '{0[0]:0.0f}x{0[0]:0.0f}')
 }
 
 result_variables = {
@@ -97,6 +117,9 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
 
     nsf_params = dict(nsf_params)
     nsf_params.update(defaults)
+
+    angular_resolution = nsf_params.pop('angular_resolution')
+    nsf_params['n_test_angles'] = nsf_params['saccade_degrees'] / angular_resolution
 
     nsf = NavBySceneFamiliarity(**nsf_params)
     nsf.train_from_path(training_path)
@@ -227,6 +250,8 @@ for i, trial_vals in enumerate(my_trials):
 
     frames = int(FRAME_FACTOR * TRAINING_SCENE_ARCLEN_FACTOR * len(tpath))
 
+    start_offset = trial.pop("start_offset")
+
     save_to = "trials/landscape_class_%s/landscape_diffuse_time_%i/" % (landscape_class, landscape_diff_time)
     logger.debug("Task %i saving to '%s'", comm.rank, save_to)
     trial_result = run_experiment(
@@ -235,7 +260,7 @@ for i, trial_vals in enumerate(my_trials):
                        training_path = tpath,
                        nsf_params = trial,
                        frames = frames,
-                       starting_pos = tpath[1],
+                       starting_pos = tpath[1] + start_offset,
                        starting_angle = np.arctan2(*list(tpath[2] - tpath[1])) % 2 * np.pi
                    )
 
@@ -262,5 +287,5 @@ if comm.rank == 0:
     # Also save the same data in MATLAB format for convinience
     scipy.io.savemat("output.mat", to_save)
 
-    logger.info("Done! Finished %i trials" % len(all_results[0]))
+    logger.info("Done! Finished %i trials" % len(all_vars[0]))
     logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
