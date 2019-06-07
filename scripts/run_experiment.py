@@ -34,8 +34,8 @@ N_QUIVER_BOX = 40
 
 # --- REAL VARS ---
 variable_dict = {
-    'landscape_class' : ["checker", "irreg"], # At this point, just checkerboard = 1
-    'landscape_diffuse_time' : [0, 100, 200, 500, 1350], # These will be different and higher
+    'landscape_class' : ["checker"], #Don't do irreg yet # At this point, just checkerboard = 1
+    'landscape_diffuse_time' : [0, 125, 450, 750, 1400], # These will be different and higher
     'training_path_curve' : [0.0, 0.5, 1.0],
     'sensor_dimensions' : [(40, 4), (40, 2), (40, 1), (20, 1), (10, 1)],
     # These are chosen to hold total sensor area constant

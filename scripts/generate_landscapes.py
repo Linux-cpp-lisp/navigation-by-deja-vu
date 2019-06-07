@@ -1,7 +1,7 @@
 from navsim.generate_landscapes import *
 
 # Call with folder as first argument
-# generate_landscapes.py orig_landscape.png "[diff-time-1] [diff-time-2]" out/
+# generate_landscapes.py orig_landscape.npy "[diff-time-1] [diff-time-2]" out/
 
 import os, sys
 import skimage.io
@@ -11,7 +11,7 @@ orig_name = sys.argv[1]
 print("Reading original...")
 orig = np.load(orig_name)
 
-diffuse_times = map(int, sys.argv[2].split())
+diffuse_times = list(map(int, sys.argv[2].split()))
 
 os.chdir(sys.argv[3])
 
