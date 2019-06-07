@@ -84,6 +84,7 @@ assert VARIABLE_DIRECTORY_NESTING_LEVELS < len(variable_dict)
 import logging
 logging.basicConfig()
 logger = logging.getLogger('experiments')
+logger.setLevel(logging.INFO)
 
 from navsim import NavBySceneFamiliarity
 
@@ -123,10 +124,6 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
     angular_resolution = nsf_params.pop('angular_resolution')
     nsf_params['n_test_angles'] = int(nsf_params['saccade_degrees'] / angular_resolution)
 
-    sres = nsf_params.pop('sensor_dimensions')
-    nsf_params['sensor_dimensions'] = sres[0:2]
-    nsf_params['sensor_pixel_dimensions'] = sres[2:5]
-
     nsf = NavBySceneFamiliarity(**nsf_params)
     nsf.train_from_path(training_path)
 
@@ -135,12 +132,16 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
 
     fig, anim = nsf.animate(frames = frames)
     anim.save(save_to + "/nav-%s.mp4" % id_str)
+    plt.close(fig)
+    del anim
 
     quiv_dat = nsf.quiver_plot_data(n_box = n_quiver_box, max_distance = QUIVER_DIST_FACTOR * nsf_params['step_size'])
     quiv = nsf.plot_quiver(**quiv_dat)
     with open(save_to + "/quiv-%s.pkl" % id_str, 'wb') as qf:
         pickle.dump(quiv_dat, qf)
     quiv.savefig(save_to + "/quiv-%s.png" % id_str, dpi = 200)
+    plt.close(quiv)
+    del quiv_dat
 
     my_status = nsf.stopped_with_exception
     my_status = (0 if my_status is None else my_status.get_code())
@@ -241,6 +242,10 @@ for i, trial_vals in enumerate(my_trials):
 
     id_str = "_".join("%s-%s" % (short_names[v][0], short_names[v][1].format(trial[v])) for v in id_str_vars)
     logger.info("Task %i running its trial %i/%i: experiment '%s'" % (comm.rank, i + 1, len(my_trials), id_str))
+
+    sres = trial.pop('sensor_dimensions')
+    trial['sensor_dimensions'] = sres[0:2]
+    trial['sensor_pixel_dimensions'] = sres[2:5]
 
     # - Load/create stuff
     landscape_class = trial.pop("landscape_class")
