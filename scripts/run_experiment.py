@@ -37,11 +37,15 @@ variable_dict = {
     'landscape_class' : ["checker"], #Don't do irreg yet # At this point, just checkerboard = 1
     'landscape_diffuse_time' : [0, 125, 450, 750, 1400], # These will be different and higher
     'training_path_curve' : [0.0, 0.5, 1.0],
-    'sensor_dimensions' : [(40, 4), (40, 2), (40, 1), (20, 1), (10, 1)],
+    'sensor_dimensions' : [(40, 4, 2, 2),
+                           (40, 2, 2, 4),
+                           (40, 1, 2, 8),
+                           (20, 1, 4, 8),
+                           (10, 1, 8, 8)],
     # These are chosen to hold total sensor area constant
     # want at least some blurring to avoid weird effects at the highest resultion,
     # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
-    'sensor_pixel_dimensions' : [(2, 2), (2, 4), (2, 8), (4, 8), (8, 8)],
+
     'n_sensor_levels' : [2, 4, 8, 16],
     'saccade_degrees' : [30., 60., 90.],
     # Sensor is 80px wide, so 1/16th width is 5px. We'll divide that a little
@@ -61,8 +65,7 @@ short_names = {
     'training_path_curve' : ('crv', '{0:0.2f}'),
     'saccade_degrees' : ('sacc', '{0:0.0f}'),
     'n_sensor_levels' : ('grays', '{0}'),
-    'sensor_pixel_dimensions' : ('pxdim', '{0[0]}x{0[1]}'),
-    'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}'),
+    'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}at{0[2]}x{0[3]}'),
     'start_offset' : ('ofst', '{0[0]:0.0f}x{0[0]:0.0f}')
 }
 
@@ -81,7 +84,6 @@ assert VARIABLE_DIRECTORY_NESTING_LEVELS < len(variable_dict)
 import logging
 logging.basicConfig()
 logger = logging.getLogger('experiments')
-logger.setLevel(logging.DEBUG)
 
 from navsim import NavBySceneFamiliarity
 
@@ -119,7 +121,11 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
     nsf_params.update(defaults)
 
     angular_resolution = nsf_params.pop('angular_resolution')
-    nsf_params['n_test_angles'] = nsf_params['saccade_degrees'] / angular_resolution
+    nsf_params['n_test_angles'] = int(nsf_params['saccade_degrees'] / angular_resolution)
+
+    sres = nsf_params.pop('sensor_dimensions')
+    nsf_params['sensor_dimensions'] = sres[0:2]
+    nsf_params['sensor_pixel_dimensions'] = sres[2:5]
 
     nsf = NavBySceneFamiliarity(**nsf_params)
     nsf.train_from_path(training_path)
