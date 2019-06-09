@@ -17,7 +17,7 @@ os.chdir(sys.argv[3])
 
 # -- Generate Original Image
 
-skimage.io.imsave("original-landscape.png", orig)
+skimage.io.imsave("original-landscape.png", orig.astype(np.float))
 
 # -- Generate Diffused Ones
 
