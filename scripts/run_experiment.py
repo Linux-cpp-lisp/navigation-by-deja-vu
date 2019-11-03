@@ -34,7 +34,7 @@ N_QUIVER_BOX = 40
 
 # --- REAL VARS ---
 variable_dict = {
-    'landscape_class' : ["checker"], #Don't do irreg yet # At this point, just checkerboard = 1
+    'landscape_class' : ["irreg"], #Don't do irreg yet # At this point, just checkerboard = 1
     'landscape_diffuse_time' : [0, 125, 450, 750, 1400], # These will be different and higher
     'training_path_curve' : [0.0, 0.5, 1.0],
     'sensor_dimensions' : [(40, 4, 2, 2),
@@ -50,7 +50,7 @@ variable_dict = {
     'saccade_degrees' : [30., 60., 90.],
     # Sensor is 80px wide, so 1/16th width is 5px. We'll divide that a little
     # in each direction. (3.5 is the side length of a right isoceles with
-    # a hypotenuse of 5.)
+    # a hypotenuse of ~5.)
     'start_offset' : [np.array([0., 0.]), np.array([3.5, 3.5])] # Units are px
 }
 
@@ -135,13 +135,13 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
     plt.close(fig)
     del anim
 
-    quiv_dat = nsf.quiver_plot_data(n_box = n_quiver_box, max_distance = QUIVER_DIST_FACTOR * nsf_params['step_size'])
-    quiv = nsf.plot_quiver(**quiv_dat)
-    with open(save_to + "/quiv-%s.pkl" % id_str, 'wb') as qf:
-        pickle.dump(quiv_dat, qf)
-    quiv.savefig(save_to + "/quiv-%s.png" % id_str, dpi = 200)
-    plt.close(quiv)
-    del quiv_dat
+    #quiv_dat = nsf.quiver_plot_data(n_box = n_quiver_box, max_distance = QUIVER_DIST_FACTOR * nsf_params['step_size'])
+    #quiv = nsf.plot_quiver(**quiv_dat)
+    #with open(save_to + "/quiv-%s.pkl" % id_str, 'wb') as qf:
+#        pickle.dump(quiv_dat, qf)
+    #quiv.savefig(save_to + "/quiv-%s.png" % id_str, dpi = 200)
+    #plt.close(quiv)
+    #del quiv_dat
 
     my_status = nsf.stopped_with_exception
     my_status = (0 if my_status is None else my_status.get_code())
