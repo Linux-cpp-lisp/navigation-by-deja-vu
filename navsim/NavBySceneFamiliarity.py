@@ -135,7 +135,7 @@ class NavBySceneFamiliarity(object):
         dists = self.sensor_dimensions * self.sensor_pixel_dimensions // 2
         r = np.max(dists)
 
-        if np.any(np.logical_or(position < r, position > np.subtract(self.landscape.shape, r))):
+        if np.any(np.logical_or(position < r, position[::-1] > np.subtract(self.landscape.shape, r))):
             raise OutOfLandscapeBoundsException()
 
         sensor_mat = np.copy(self.landscape[position[1] - r:position[1] + r,
@@ -354,6 +354,118 @@ class NavBySceneFamiliarity(object):
         return fig
 
 
+    def _plot_landscape(self, main_ax, training_path = True):
+        # -- Plot basic elements
+        main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.6)
+        if training_path:
+            main_ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3)
+
+        scalebar_len_px = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions)
+        scalebar_fp = fm.FontProperties(size=11)
+        scalebar = AnchoredSizeBar(main_ax.transData,
+                                   scalebar_len_px,
+                                   "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
+                                   'lower right',
+                                   pad = 0.2,
+                                   color = 'k',
+                                   frameon = True,
+                                   size_vertical = 2,
+                                   fontproperties = scalebar_fp)
+        scalebar.patch.set_alpha(0.6)
+        main_ax.add_artist(scalebar)
+
+
+    def compass_plot(self,
+                     figsize = (10, 8),
+                     dpi = 180,
+                     show_every = 50,
+                     show_navpath = False,
+                     frames = 20,
+                     inner_radius = 0.25,
+                     total_radius = 25.0,
+                     arrow_radius = 1.0):
+        fig = plt.figure(figsize = figsize, dpi = dpi)
+        main_ax = plt.subplot()
+        main_ax.xaxis.set_ticks([])
+        main_ax.yaxis.set_ticks([])
+
+        self._plot_landscape(main_ax, training_path = True)
+
+        xpos, ypos = [self.position[0]], [self.position[1]]
+
+        stoped_for = None
+
+        position = self.position
+        angle = self.angle
+
+        inner_radius = inner_radius * total_radius
+        graph_radius = total_radius - inner_radius
+        full_radius = inner_radius + graph_radius
+        agentz  = 12
+
+        try:
+            for i in range(frames):
+                self.step_forward()
+                xpos.append(self.position[0]); ypos.append(self.position[1])
+
+                if i % show_every == 0:
+                    x, y = position
+
+                    agent_circle = matplotlib.patches.Circle(
+                        xy = (x, y),
+                        radius = 2,
+                        edgecolor = None,
+                        facecolor = 'k',
+                        zorder = agentz
+                    )
+                    main_ax.add_patch(agent_circle)
+
+                    scaledfam = self.n_sensor_pixels - self.angle_familiarity
+                    scaledfam -= np.min(scaledfam)
+                    scaledfam /= np.max(scaledfam)
+                    scaledfam *= graph_radius
+                    xs = x + np.cos(angle + self.angle_offsets) * (inner_radius + scaledfam)
+                    ys = y + np.sin(angle + self.angle_offsets) * (inner_radius + scaledfam)
+                    main_ax.plot(xs, ys, color = 'k', zorder = agentz, linewidth = 0.75)
+
+                    wedge = matplotlib.patches.Wedge(
+                        center = (x, y),
+                        #width = graph_radius,
+                        r = full_radius,
+                        theta1 = (180 * (angle % (2 * np.pi)) / np.pi) - (self.saccade_degrees * 0.5),
+                        theta2 = (180 * (angle % (2 * np.pi)) / np.pi) + (self.saccade_degrees * 0.5),
+                        edgecolor = 'k',
+                        facecolor = (0.6, 0., 1., 0.2),
+                        linewidth = 0.75,
+                        zorder = agentz - 2
+                    )
+                    main_ax.add_patch(wedge)
+
+                    best_angle = angle + self.angle_offsets[np.argmin(self.angle_familiarity)]
+                    main_ax.arrow(
+                        x = x,
+                        y = y,
+                        dx = arrow_radius * self.step_size * np.cos(best_angle),
+                        dy = arrow_radius * self.step_size * np.sin(best_angle),
+                        zorder = agentz + 1,
+                        width = 0.15,
+                        facecolor = 'k',
+                        edgecolor = 'k',
+                        head_width = 2.5,
+                    )
+
+                position = self.position
+                angle = self.angle
+
+        except navsim.StopNavigationException as e:
+            stoped_for = e
+
+        if show_navpath:
+            path_ln, = main_ax.plot(xpos, ypos, color = navcolor, linewidth = 1.5, linestyle = '--', zorder = 8)
+
+        return fig, stoped_for
+
+
     def animate(self, frames, interval = 100):
 
         # -- Make figure & axes
@@ -391,23 +503,7 @@ class NavBySceneFamiliarity(object):
         sensor_ax.xaxis.set_major_locator(plt.NullLocator())
         sensor_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        # -- Plot basic elements
-        main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.6)
-        main_ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3)
-
-        scalebar_len_px = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions)
-        scalebar_fp = fm.FontProperties(size=11)
-        scalebar = AnchoredSizeBar(main_ax.transData,
-                                   scalebar_len_px,
-                                   "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
-                                   'lower right',
-                                   pad = 0.2,
-                                   color = 'k',
-                                   frameon = True,
-                                   size_vertical = 2,
-                                   fontproperties = scalebar_fp)
-        scalebar.patch.set_alpha(0.6)
-        main_ax.add_artist(scalebar)
+        self._plot_landscape(main_ax, training_path = True)
 
         scene_inset_width = 20
 
