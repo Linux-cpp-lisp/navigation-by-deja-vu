@@ -22,6 +22,8 @@ class StopNavigationException(Exception):
         raise NotImplementedError()
     def get_code(self):
         raise NotImplementedError()
+    def __str__(self):
+        return self.get_reason()
 
 class ReachedEndOfTrainingPathException(StopNavigationException):
     def get_reason(self):
@@ -49,6 +51,17 @@ LANDSCAPE_CMAP = 'Greens'
 navcolor = 'darkorchid'
 traincolor = 'dodgerblue'
 
+def sads_familiarity(scenes):
+    maxfam = scenes[0].shape[0] *  scenes[0].shape[1]
+    def func(scene, fambuf):
+        for f_index in range(len(scenes)):
+            fambuf[f_index] = maxfam - sads(scene, scenes[f_index])
+
+    func.max_familiarity = maxfam
+
+    return func
+
+
 class NavBySceneFamiliarity(object):
     """
     Args:
@@ -66,7 +79,8 @@ class NavBySceneFamiliarity(object):
                  n_sensor_levels = 5,
                  threshold_factor = 2.,
                  saccade_degrees = 180.,
-                 sensor_real_area = None):
+                 sensor_real_area = None,
+                 familiarity_model = sads_familiarity):
         self.landscape = landscape
 
         self.position = (0., 0.)
@@ -96,6 +110,8 @@ class NavBySceneFamiliarity(object):
 
         self.training_path = None
 
+        self.familiarity_model = familiarity_model
+
         self.reset_error()
 
 
@@ -118,6 +134,9 @@ class NavBySceneFamiliarity(object):
         self.training_path = points
 
         self.reset_error()
+
+        #Train:
+        self._familiarity_func = self.familiarity_model(self.familiar_scenes)
 
 
     def _make_sensor_mask(self):
@@ -227,20 +246,24 @@ class NavBySceneFamiliarity(object):
             temp_fam[:] = np.nan
 
             assert len(self.familiar_scenes) == len(self.scene_familiarity)
-            for f_index in range(len(self.familiar_scenes)):
-                # np.subtract(smat_rot, self.familiar_scenes[f_index], out = temp)
-                # np.abs(temp, out = temp)
-                # temp_fam[f_index] = np.sum(temp)
-                temp_fam[f_index] = sads(smat_rot, self.familiar_scenes[f_index])
 
+            self._familiarity_func(smat_rot, temp_fam)
+
+            for f_index in range(len(self.scene_familiarity)):
                 if temp_fam[f_index] < self.scene_familiarity[f_index]:
                     self.scene_familiarity[f_index] = temp_fam[f_index]
 
+            # for f_index in range(len(self.familiar_scenes)):
+            #     temp_fam[f_index] = sads(smat_rot, self.familiar_scenes[f_index])
+            #
+            #     if temp_fam[f_index] < self.scene_familiarity[f_index]:
+            #         self.scene_familiarity[f_index] = temp_fam[f_index]
+
             del smat_rot
 
-            self.angle_familiarity[a_idex] = np.min(temp_fam)
+            self.angle_familiarity[a_idex] = np.max(temp_fam)
 
-        best_idex = np.argmin(self.angle_familiarity)
+        best_idex = np.argmax(self.angle_familiarity)
         self.step_familiarity = self.angle_familiarity[best_idex]
         angle = (self.angle + self.angle_offsets[best_idex]) % (2 * np.pi)
 
@@ -354,25 +377,26 @@ class NavBySceneFamiliarity(object):
         return fig
 
 
-    def _plot_landscape(self, main_ax, training_path = True):
+    def _plot_landscape(self, main_ax, training_path = True, show_scalebar = True):
         # -- Plot basic elements
         main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.6)
         if training_path:
             main_ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3)
 
-        scalebar_len_px = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions)
-        scalebar_fp = fm.FontProperties(size=11)
-        scalebar = AnchoredSizeBar(main_ax.transData,
-                                   scalebar_len_px,
-                                   "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
-                                   'lower right',
-                                   pad = 0.2,
-                                   color = 'k',
-                                   frameon = True,
-                                   size_vertical = 2,
-                                   fontproperties = scalebar_fp)
-        scalebar.patch.set_alpha(0.6)
-        main_ax.add_artist(scalebar)
+        if show_scalebar:
+            scalebar_len_px = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions)
+            scalebar_fp = fm.FontProperties(size=11)
+            scalebar = AnchoredSizeBar(main_ax.transData,
+                                       scalebar_len_px,
+                                       "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
+                                       'lower right',
+                                       pad = 0.2,
+                                       color = 'k',
+                                       frameon = True,
+                                       size_vertical = 2,
+                                       fontproperties = scalebar_fp)
+            scalebar.patch.set_alpha(0.6)
+            main_ax.add_artist(scalebar)
 
 
     def compass_plot(self,
@@ -403,62 +427,66 @@ class NavBySceneFamiliarity(object):
         full_radius = inner_radius + graph_radius
         agentz  = 12
 
-        try:
-            for i in range(frames):
+        for i in range(frames):
+            try:
                 self.step_forward()
-                xpos.append(self.position[0]); ypos.append(self.position[1])
+            except StopNavigationException as e:
+                # We'll break at end of loop, still want to show the step.
+                stoped_for = e
 
-                if i % show_every == 0:
-                    x, y = position
+            xpos.append(self.position[0]); ypos.append(self.position[1])
 
-                    agent_circle = matplotlib.patches.Circle(
-                        xy = (x, y),
-                        radius = 2,
-                        edgecolor = None,
-                        facecolor = 'k',
-                        zorder = agentz
-                    )
-                    main_ax.add_patch(agent_circle)
+            if i % show_every == 0:
+                x, y = position
 
-                    scaledfam = self.n_sensor_pixels - self.angle_familiarity
-                    scaledfam -= np.min(scaledfam)
-                    scaledfam /= np.max(scaledfam)
-                    scaledfam *= graph_radius
-                    xs = x + np.cos(angle + self.angle_offsets) * (inner_radius + scaledfam)
-                    ys = y + np.sin(angle + self.angle_offsets) * (inner_radius + scaledfam)
-                    main_ax.plot(xs, ys, color = 'k', zorder = agentz, linewidth = 0.75)
+                agent_circle = matplotlib.patches.Circle(
+                    xy = (x, y),
+                    radius = 2,
+                    edgecolor = None,
+                    facecolor = 'k',
+                    zorder = agentz
+                )
+                main_ax.add_patch(agent_circle)
 
-                    wedge = matplotlib.patches.Wedge(
-                        center = (x, y),
-                        #width = graph_radius,
-                        r = full_radius,
-                        theta1 = (180 * (angle % (2 * np.pi)) / np.pi) - (self.saccade_degrees * 0.5),
-                        theta2 = (180 * (angle % (2 * np.pi)) / np.pi) + (self.saccade_degrees * 0.5),
-                        edgecolor = 'k',
-                        facecolor = (0.6, 0., 1., 0.2),
-                        linewidth = 0.75,
-                        zorder = agentz - 2
-                    )
-                    main_ax.add_patch(wedge)
+                scaledfam = self.angle_familiarity
+                scaledfam -= np.min(scaledfam)
+                scaledfam /= np.max(scaledfam)
+                scaledfam *= graph_radius * 0.95
+                xs = x + np.cos(angle + self.angle_offsets) * (inner_radius + scaledfam)
+                ys = y + np.sin(angle + self.angle_offsets) * (inner_radius + scaledfam)
+                main_ax.plot(xs, ys, color = 'k', zorder = agentz, linewidth = 0.75)
 
-                    best_angle = angle + self.angle_offsets[np.argmin(self.angle_familiarity)]
-                    main_ax.arrow(
-                        x = x,
-                        y = y,
-                        dx = arrow_radius * self.step_size * np.cos(best_angle),
-                        dy = arrow_radius * self.step_size * np.sin(best_angle),
-                        zorder = agentz + 1,
-                        width = 0.15,
-                        facecolor = 'k',
-                        edgecolor = 'k',
-                        head_width = 2.5,
-                    )
+                wedge = matplotlib.patches.Wedge(
+                    center = (x, y),
+                    #width = graph_radius,
+                    r = full_radius,
+                    theta1 = (180 * (angle % (2 * np.pi)) / np.pi) - (self.saccade_degrees * 0.5),
+                    theta2 = (180 * (angle % (2 * np.pi)) / np.pi) + (self.saccade_degrees * 0.5),
+                    edgecolor = 'k',
+                    facecolor = (0.6, 0., 1., 0.2),
+                    linewidth = 0.75,
+                    zorder = agentz - 2
+                )
+                main_ax.add_patch(wedge)
 
-                position = self.position
-                angle = self.angle
+                best_angle = angle + self.angle_offsets[np.argmax(self.angle_familiarity)]
+                main_ax.arrow(
+                    x = x,
+                    y = y,
+                    dx = arrow_radius * self.step_size * np.cos(best_angle),
+                    dy = arrow_radius * self.step_size * np.sin(best_angle),
+                    zorder = agentz + 1,
+                    width = 0.15,
+                    facecolor = 'k',
+                    edgecolor = 'k',
+                    head_width = 2.5,
+                )
 
-        except navsim.StopNavigationException as e:
-            stoped_for = e
+            position = self.position
+            angle = self.angle
+
+            if stoped_for is not None:
+                break
 
         if show_navpath:
             path_ln, = main_ax.plot(xpos, ypos, color = navcolor, linewidth = 1.5, linestyle = '--', zorder = 8)
@@ -587,7 +615,7 @@ class NavBySceneFamiliarity(object):
                 sensor_rect.angle = np.rad2deg(self.angle)
 
                 scene_ln.set_ydata(self.scene_familiarity)
-                s_amin = np.argmin(self.scene_familiarity)
+                s_amin = np.argmax(self.scene_familiarity)
                 scene_min.set_xdata([s_amin, s_amin])
                 scene_min_box.set_xy((s_amin - scene_inset_width, 0.))
 
@@ -598,7 +626,7 @@ class NavBySceneFamiliarity(object):
                 scene_inset_ln.set_ydata(scene_inset_dat)
 
                 angle_ln.set_ydata(self.angle_familiarity)
-                a_amin = 180. * self.angle_offsets[np.argmin(self.angle_familiarity)] / np.pi
+                a_amin = 180. * self.angle_offsets[np.argmax(self.angle_familiarity)] / np.pi
                 angle_min.set_xdata([a_amin, a_amin])
 
                 sensor_im.set_array(new_sens_mat)
