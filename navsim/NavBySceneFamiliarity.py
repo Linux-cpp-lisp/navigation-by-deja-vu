@@ -47,9 +47,9 @@ class OutOfLandscapeBoundsException(NavigatingFailedException):
         return -2
 
 #SCALING_VMAX = 1.4
-LANDSCAPE_CMAP = 'Greens'
-navcolor = 'darkorchid'
-traincolor = 'dodgerblue'
+LANDSCAPE_CMAP = 'YlGn'
+NAVCOLOR = 'maroon' #'darkorchid'
+TRAINCOLOR = 'goldenrod'
 
 def sads_familiarity(scenes):
     maxfam = scenes[0].shape[0] *  scenes[0].shape[1]
@@ -367,7 +367,7 @@ class NavBySceneFamiliarity(object):
 
         ax.imshow(landscape, cmap = LANDSCAPE_CMAP, origin = 'lower', alpha = 0.4, zorder = 0)
         im = ax.imshow(familiarities, vmin = 0, origin = 'lower', extent = (r, r + land_size[0], r, r + land_size[1]), alpha = 0.3, cmap = "winter", zorder = 1)
-        ax.plot(training_path[:,0], training_path[:,1], color = traincolor, linewidth = 3, zorder = 2)
+        ax.plot(training_path[:,0], training_path[:,1], color = TRAINCOLOR, linewidth = 3, zorder = 2)
         #im = ax.quiver(X, Y, U, V, familiarities, cmap = "winter", zorder = 2)
         ax.quiver(X, Y, U, V, pivot = "middle", zorder = 3, headwidth = 5, headlength = 4, headaxislength = 3.5)
         fig.colorbar(im)
@@ -379,13 +379,20 @@ class NavBySceneFamiliarity(object):
 
     def _plot_landscape(self, main_ax, training_path = True, show_scalebar = True):
         # -- Plot basic elements
-        main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.6)
+        main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.5)
         if training_path:
-            main_ax.plot(self.training_path[:,0], self.training_path[:,1], color = traincolor, linewidth = 3)
+            main_ax.plot(self.training_path[:,0], self.training_path[:,1],
+                         color = TRAINCOLOR,
+                         linewidth = 3,
+                         marker = '*',
+                         markersize = 15,
+                         markeredgecolor = 'grey',
+                         markeredgewidth = 1.,
+                         markevery = [len(self.training_path) - 1])
 
         if show_scalebar:
             scalebar_len_px = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions)
-            scalebar_fp = fm.FontProperties(size=11)
+            scalebar_fp = fm.FontProperties(size=8)
             scalebar = AnchoredSizeBar(main_ax.transData,
                                        scalebar_len_px,
                                        "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
@@ -400,20 +407,24 @@ class NavBySceneFamiliarity(object):
 
 
     def compass_plot(self,
-                     figsize = (10, 8),
-                     dpi = 180,
+                     ax = None,
                      show_every = 50,
                      show_navpath = False,
                      frames = 20,
                      inner_radius = 0.25,
                      total_radius = 25.0,
-                     arrow_radius = 1.0):
-        fig = plt.figure(figsize = figsize, dpi = dpi)
-        main_ax = plt.subplot()
+                     arrow_radius = 1.0, **kwargs):
+        if ax is None:
+            fig = plt.figure(figsize = figsize, dpi = dpi)
+            main_ax = plt.subplot()
+        else:
+            fig = None
+            main_ax = ax
+
         main_ax.xaxis.set_ticks([])
         main_ax.yaxis.set_ticks([])
 
-        self._plot_landscape(main_ax, training_path = True)
+        self._plot_landscape(main_ax, training_path = True, **kwargs)
 
         xpos, ypos = [self.position[0]], [self.position[1]]
 
@@ -458,12 +469,11 @@ class NavBySceneFamiliarity(object):
 
                 wedge = matplotlib.patches.Wedge(
                     center = (x, y),
-                    #width = graph_radius,
                     r = full_radius,
                     theta1 = (180 * (angle % (2 * np.pi)) / np.pi) - (self.saccade_degrees * 0.5),
                     theta2 = (180 * (angle % (2 * np.pi)) / np.pi) + (self.saccade_degrees * 0.5),
-                    edgecolor = 'k',
-                    facecolor = (0.6, 0., 1., 0.2),
+                    edgecolor = (0., 0., 0., 0.8),
+                    facecolor = (1., 1., 1., 0.3),
                     linewidth = 0.75,
                     zorder = agentz - 2
                 )
@@ -475,11 +485,14 @@ class NavBySceneFamiliarity(object):
                     y = y,
                     dx = arrow_radius * self.step_size * np.cos(best_angle),
                     dy = arrow_radius * self.step_size * np.sin(best_angle),
-                    zorder = agentz + 1,
-                    width = 0.15,
-                    facecolor = 'k',
-                    edgecolor = 'k',
-                    head_width = 2.5,
+                    zorder = agentz - 1,
+                    width = 0.1,
+                    facecolor = NAVCOLOR,
+                    edgecolor = NAVCOLOR,
+                    head_width = 8.,
+                    head_length = 5.,
+                    length_includes_head = True,
+                    overhang = 0.85,
                 )
 
             position = self.position
@@ -489,9 +502,16 @@ class NavBySceneFamiliarity(object):
                 break
 
         if show_navpath:
-            path_ln, = main_ax.plot(xpos, ypos, color = navcolor, linewidth = 1.5, linestyle = '--', zorder = 8)
+            path_ln, = main_ax.plot(
+                xpos, ypos,
+                color = 'k',
+                alpha = 0.7,
+                linewidth = 1.25,
+                linestyle = '-',
+                zorder = agentz - 4
+            )
 
-        return fig, stoped_for
+        return (fig, main_ax), stoped_for
 
 
     def animate(self, frames, interval = 100):
@@ -536,13 +556,13 @@ class NavBySceneFamiliarity(object):
         scene_inset_width = 20
 
         scene_ln_x = np.arange(len(self.scene_familiarity))
-        scene_min = scene_ax.axvline(0, color = navcolor, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
+        scene_min = scene_ax.axvline(0, color = NAVCOLOR, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
         scene_min_box =  matplotlib.patches.Rectangle(xy = (0., 0.),
                                                    width = 2 * scene_inset_width + 1,
                                                    height = 0.5 * self.n_sensor_pixels,
                                                    alpha = 0.05,
                                                    animated = True,
-                                                   color = navcolor)
+                                                   color = NAVCOLOR)
         scene_ax.add_patch(scene_min_box)
         scene_ln, = scene_ax.plot(scene_ln_x, self.scene_familiarity, color = 'k', animated = True, linewidth = 0.75)
         scene_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
@@ -553,15 +573,15 @@ class NavBySceneFamiliarity(object):
                                     height="30%",
                                     loc = 1)
         scene_inset_ax.set_zorder(5)
-        scene_inset_ax.set_facecolor([min(e + 0.76, 1.0) for e in matplotlib.colors.to_rgb(navcolor)])
-        scene_inset_ax.axvline(scene_inset_width, color = navcolor, zorder = 1, alpha = 0.6, linewidth = 1.)
+        scene_inset_ax.set_facecolor([min(e + 0.76, 1.0) for e in matplotlib.colors.to_rgb(NAVCOLOR)])
+        scene_inset_ax.axvline(scene_inset_width, color = NAVCOLOR, zorder = 1, alpha = 0.6, linewidth = 1.)
         scene_inset_dat = np.zeros(scene_inset_width * 2 + 1)
         scene_inset_ln, = scene_inset_ax.plot(np.arange(len(scene_inset_dat)), scene_inset_dat, color = 'k', animated = True, linewidth = 0.75, zorder = 10)
         scene_inset_ax.set_ylim((0, 0.3 * self.n_sensor_pixels))
         scene_inset_ax.xaxis.set_major_locator(plt.NullLocator())
         scene_inset_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        angle_min = angle_ax.axvline(0, color = navcolor, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
+        angle_min = angle_ax.axvline(0, color = NAVCOLOR, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
         angle_ln_x = 180. * self.angle_offsets / np.pi
         angle_ln, = angle_ax.plot(angle_ln_x, self.angle_familiarity, color = 'k', animated = True)
         angle_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
@@ -569,7 +589,7 @@ class NavBySceneFamiliarity(object):
         angle_ax.yaxis.set_major_locator(plt.NullLocator())
 
         xpos, ypos = [self.position[0]], [self.position[1]]
-        path_ln, = main_ax.plot(xpos, ypos, color = navcolor, marker = 'o', markersize = 5, linewidth = 2, animated = True)
+        path_ln, = main_ax.plot(xpos, ypos, color = NAVCOLOR, marker = 'o', markersize = 5, linewidth = 2, animated = True)
 
         sens_rect_dims = (self.sensor_dimensions * self.sensor_pixel_dimensions)[::-1]
         sensor_rect = matplotlib.patches.Rectangle(xy = (0., 0.),
@@ -578,7 +598,7 @@ class NavBySceneFamiliarity(object):
                                                    angle = 0.,
                                                    alpha = 0.35,
                                                    animated = True,
-                                                   color = navcolor)
+                                                   color = NAVCOLOR)
 
         sens_rect_dims = (sens_rect_dims // 2)
 
