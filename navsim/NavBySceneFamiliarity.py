@@ -285,7 +285,7 @@ class NavBySceneFamiliarity(object):
         return s
 
     # ----- Plotting Code
-    def _plot_landscape(self, main_ax, training_path = True, show_scalebar = True):
+    def _plot_landscape(self, main_ax, training_path = True, show_scalebar = 'lower right'):
         # -- Plot basic elements
         main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.5)
         if training_path:
@@ -293,8 +293,8 @@ class NavBySceneFamiliarity(object):
                          color = TRAINCOLOR,
                          linewidth = 3,
                          marker = '*',
-                         markersize = 15,
-                         markeredgecolor = 'grey',
+                         markersize = 12,
+                         markeredgecolor = 'dimgrey',
                          markeredgewidth = 1.,
                          markevery = [len(self.training_path) - 1])
 
@@ -304,7 +304,7 @@ class NavBySceneFamiliarity(object):
             scalebar = AnchoredSizeBar(main_ax.transData,
                                        scalebar_len_px,
                                        "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
-                                       'lower right',
+                                       show_scalebar,
                                        pad = 0.2,
                                        color = 'k',
                                        frameon = True,
