@@ -12,8 +12,6 @@ OUTFILE_NAME = 'output.npz'
 
 FRAME_FACTOR = 1.2
 TRAINING_SCENE_ARCLEN_FACTOR = 0.5
-QUIVER_DIST_FACTOR = 10
-N_QUIVER_BOX = 40
 
 # --------- EXPERIMENTAL VARIABLES ----
 # ---- TEST VARS ----
@@ -47,24 +45,16 @@ variable_dict = {
     # Sensor is 80px wide, so 1/16th width is 5px. We'll divide that a little
     # in each direction. (3.5 is the side length of a right isoceles with
     # a hypotenuse of ~5.)
-    'start_offset' : [np.array([0., 0.]), np.array([3.5, 3.5])] # Units are px
+    # 5.65 is hypot of 8px.
+    'start_offset' : [np.array([0., 0.]), np.array([3.5, 3.5]), np.array([5.65, 5.65])], # Units are px
+    # Step size as a fraction of sensor depth
+    'step_size' : [0.25, 1.0, 2.0]
 }
 
 defaults = {
     'angular_resolution' : 3, #degrees
     'max_distance_to_training_path' : 80,
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
-    'step_size' : 2.0,
-}
-
-short_names = {
-    'training_path_curve' : ('crv', '{0:0.2f}'),
-    'saccade_degrees' : ('sacc', '{0:0.0f}'),
-    'n_sensor_levels' : ('grays', '{0}'),
-    'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}at{0[2]}x{0[3]}'),
-    'start_offset' : ('ofst', '{0[0]:0.0f}x{0[0]:0.0f}'),
-    'landscape_class' : ('lclass', '{0}'),
-    'landscape_diffuse_time' : ('diff', '{0}')
 }
 
 result_variables = {
@@ -119,7 +109,12 @@ def make_nsf(params):
     trial['sensor_dimensions'] = sres[0:2]
     trial['sensor_pixel_dimensions'] = sres[2:5]
 
-    # - Load/create stuff
+    # - Compute step size
+    # step_size is given as a fraction of the forward-facing dimension
+    # of the sensor.
+    sensor_pixel_depth = trial['sensor_dimensions'][1] * trial['sensor_pixel_dimensions'][1]
+    trial['step_size'] = trial['step_size'] * sensor_pixel_depth
+
     # Memoize landscapes
     landscape_class = trial.pop("landscape_class")
     landscape_diff_time = trial.pop("landscape_diffuse_time")
@@ -131,6 +126,7 @@ def make_nsf(params):
         loaded_landscapes[lkey] = landscape
 
     trial['landscape'] = landscape
+
     # Training Path
     margin = 1.5 * np.max(np.multiply(trial['sensor_dimensions'], trial['sensor_pixel_dimensions'])) // 2
     tpath = sin_training_path(trial.pop('training_path_curve'),
