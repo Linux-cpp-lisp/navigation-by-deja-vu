@@ -110,26 +110,58 @@ def sin_training_path(curveness, start_x, l, arclen = 2.0):
 
     return path
 
+loaded_landscapes = dict()
+def make_nsf(params):
+    trial = dict(defaults)
+    trial.update(params)
 
-def run_experiment(training_path, nsf_params, frames = None,
-                   starting_pos = None, starting_angle = None):
+    sres = trial.pop('sensor_dimensions')
+    trial['sensor_dimensions'] = sres[0:2]
+    trial['sensor_pixel_dimensions'] = sres[2:5]
 
-    nsf_params = dict(nsf_params)
-    nsf_params.update(defaults)
+    # - Load/create stuff
+    # Memoize landscapes
+    landscape_class = trial.pop("landscape_class")
+    landscape_diff_time = trial.pop("landscape_diffuse_time")
+    lkey = (landscape_class, landscape_diff_time)
+    if lkey in loaded_landscapes:
+        landscape = loaded_landscapes[lkey]
+    else:
+        landscape = np.load(landscape_dir + ("/%s/landscape-diffuse-%i.npy" % lkey))
+        loaded_landscapes[lkey] = landscape
 
-    angular_resolution = nsf_params.pop('angular_resolution')
-    nsf_params['n_test_angles'] = int(nsf_params['saccade_degrees'] / angular_resolution)
+    trial['landscape'] = landscape
+    # Training Path
+    margin = 1.5 * np.max(np.multiply(trial['sensor_dimensions'], trial['sensor_pixel_dimensions'])) // 2
+    tpath = sin_training_path(trial.pop('training_path_curve'),
+                              margin,
+                              np.min(landscape.shape) - 2 * margin,
+                              arclen = trial['step_size'] * TRAINING_SCENE_ARCLEN_FACTOR)
 
-    nsf = NavBySceneFamiliarity(**nsf_params)
-    nsf.train_from_path(training_path)
+    angular_resolution = trial.pop('angular_resolution')
+    trial['n_test_angles'] = int(trial['saccade_degrees'] / angular_resolution)
 
-    nsf.position = starting_pos
-    nsf.angle = starting_angle
+    start_offset = trial.pop("start_offset")
+
+    nsf = NavBySceneFamiliarity(**trial)
+    nsf.train_from_path(tpath)
+    nsf.position = tpath[1] + start_offset,
+    nsf.angle = np.arctan2(*(list(tpath[2] - tpath[1])[::-1])) % (2 * np.pi) # y then x for arctan2
+
+    return nsf
+
+
+def run_experiment(nsf,
+                   frames = None):
+    if frames is None:
+        frames = int(FRAME_FACTOR * TRAINING_SCENE_ARCLEN_FACTOR * len(nsf.training_path))
 
     my_status = None
+    completed_frames = 0
     try:
-        for i in range(frames):
+        for _ in range(frames):
             nsf.step_forward()
+            completed_frames += 1
     except StopNavigationException as e:
         my_status = e
 
@@ -138,7 +170,7 @@ def run_experiment(training_path, nsf_params, frames = None,
     return {
         'path_coverage' : nsf.percent_recapitulated,
         'rmsd_error' : nsf.navigation_error,
-        'completed_frames' : i + 1,
+        'completed_frames' : completed_frames,
         'stop_status' : my_status
     }
 
@@ -152,18 +184,6 @@ variables.sort() # get a consistant variable ordering. Just in case we're runnin
 trials = list(itertools.product(*[variable_dict[k] for k in variables]))
 n_trials_by_variable = [len(variable_dict[k]) for k in variables]
 n_trials = len(trials)
-
-id_str_vars = list(short_names.keys())
-
-for v in id_str_vars:
-    if not n_trials_by_variable[variables.index(v)] > 1:
-        id_str_vars.remove(v)
-
-remove_anyway = [] #['landscape_class', 'landscape_diffuse_time']
-for ra in remove_anyway:
-    if ra in id_str_vars:
-        id_str_vars.remove(ra)
-
 
 # Housekeeping
 
@@ -196,36 +216,11 @@ for i, trial_vals in enumerate(my_trials):
     # - Set up dict for convinience
     trial = dict(zip(variables, trial_vals))
 
-    id_str = "_".join("%s-%s" % (short_names[v][0], short_names[v][1].format(trial[v])) for v in id_str_vars)
-    logger.info("Task %i running its trial %i/%i: experiment '%s'" % (comm.rank, i + 1, len(my_trials), id_str))
+    if i % 50 == 0:
+        logger.info("Task %i running its trial %i/%i" % (comm.rank, i + 1, len(my_trials)))
 
-    sres = trial.pop('sensor_dimensions')
-    trial['sensor_dimensions'] = sres[0:2]
-    trial['sensor_pixel_dimensions'] = sres[2:5]
-
-    # - Load/create stuff
-    landscape_class = trial.pop("landscape_class")
-    landscape_diff_time = trial.pop("landscape_diffuse_time")
-    landscape = np.load(landscape_dir + ("/%s/landscape-diffuse-%i.npy" % (landscape_class, landscape_diff_time)))
-    trial['landscape'] = landscape
-    # Training Path
-    margin = 1.5 * np.max(np.multiply(trial['sensor_dimensions'], trial['sensor_pixel_dimensions'])) // 2
-    tpath = sin_training_path(trial.pop('training_path_curve'),
-                              margin,
-                              np.min(landscape.shape) - 2 * margin,
-                              arclen = step_size * TRAINING_SCENE_ARCLEN_FACTOR)
-
-    frames = int(FRAME_FACTOR * TRAINING_SCENE_ARCLEN_FACTOR * len(tpath))
-
-    start_offset = trial.pop("start_offset")
-
-    trial_result = run_experiment(
-                       training_path = tpath,
-                       nsf_params = trial,
-                       frames = frames,
-                       starting_pos = tpath[1] + start_offset,
-                       starting_angle = np.arctan2(*(list(tpath[2] - tpath[1])[::-1])) % (2 * np.pi) # y then x for arctan2
-                   )
+    nsf = make_nsf(trial)
+    trial_result = run_experiment(nsf)
 
     for vi, val in enumerate(trial_vals):
         my_variable_values[vi][i] = val
