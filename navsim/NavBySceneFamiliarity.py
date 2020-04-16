@@ -412,9 +412,9 @@ class NavBySceneFamiliarity(object):
         if show_navpath:
             path_ln, = main_ax.plot(
                 xpos, ypos,
-                color = 'k',
+                color = NAVCOLOR,
                 alpha = 0.7,
-                linewidth = 1.25,
+                linewidth = 1.3,
                 linestyle = '-',
                 zorder = agentz - 4
             )
