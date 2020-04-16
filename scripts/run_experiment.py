@@ -8,12 +8,8 @@ import shutil
 
 # -------- GLOBAL SETTINGS --------
 
-sensor_dim = (40, 2)
-sensor_pixel_dimensions = [2, 4]
-step_size = 2.0
-
 OUTFILE_NAME = 'output.npz'
-VARIABLE_DIRECTORY_NESTING_LEVELS = 3
+
 FRAME_FACTOR = 1.2
 TRAINING_SCENE_ARCLEN_FACTOR = 0.5
 QUIVER_DIST_FACTOR = 10
@@ -66,7 +62,9 @@ short_names = {
     'saccade_degrees' : ('sacc', '{0:0.0f}'),
     'n_sensor_levels' : ('grays', '{0}'),
     'sensor_dimensions' : ('sensor', '{0[0]}x{0[1]}at{0[2]}x{0[3]}'),
-    'start_offset' : ('ofst', '{0[0]:0.0f}x{0[0]:0.0f}')
+    'start_offset' : ('ofst', '{0[0]:0.0f}x{0[0]:0.0f}'),
+    'landscape_class' : ('lclass', '{0}'),
+    'landscape_diffuse_time' : ('diff', '{0}')
 }
 
 result_variables = {
@@ -86,7 +84,7 @@ logging.basicConfig()
 logger = logging.getLogger('experiments')
 logger.setLevel(logging.INFO)
 
-from navsim import NavBySceneFamiliarity
+from navsim import NavBySceneFamiliarity, StopNavigationException
 
 import sys, os, glob, time
 import pickle
@@ -94,10 +92,9 @@ import pickle
 from mpi4py import MPI
 
 # Run as:
-# run_experiment.py landscape_dir/ output_dir/
+# run_experiment.py landscape_dir/
 
 landscape_dir = os.path.abspath(sys.argv[1])
-output_dir = os.path.abspath(sys.argv[2])
 
 # ------ FUNCTIONS ----------
 
@@ -114,8 +111,7 @@ def sin_training_path(curveness, start_x, l, arclen = 2.0):
     return path
 
 
-def run_experiment(save_to, id_str, training_path, nsf_params,
-                   n_quiver_box = N_QUIVER_BOX, frames = None,
+def run_experiment(training_path, nsf_params, frames = None,
                    starting_pos = None, starting_angle = None):
 
     nsf_params = dict(nsf_params)
@@ -130,26 +126,19 @@ def run_experiment(save_to, id_str, training_path, nsf_params,
     nsf.position = starting_pos
     nsf.angle = starting_angle
 
-    fig, anim = nsf.animate(frames = frames)
-    anim.save(save_to + "/nav-%s.mp4" % id_str)
-    plt.close(fig)
-    del anim
+    my_status = None
+    try:
+        for i in range(frames):
+            nsf.step_forward()
+    except StopNavigationException as e:
+        my_status = e
 
-    #quiv_dat = nsf.quiver_plot_data(n_box = n_quiver_box, max_distance = QUIVER_DIST_FACTOR * nsf_params['step_size'])
-    #quiv = nsf.plot_quiver(**quiv_dat)
-    #with open(save_to + "/quiv-%s.pkl" % id_str, 'wb') as qf:
-#        pickle.dump(quiv_dat, qf)
-    #quiv.savefig(save_to + "/quiv-%s.png" % id_str, dpi = 200)
-    #plt.close(quiv)
-    #del quiv_dat
-
-    my_status = nsf.stopped_with_exception
     my_status = (0 if my_status is None else my_status.get_code())
 
     return {
         'path_coverage' : nsf.percent_recapitulated,
         'rmsd_error' : nsf.navigation_error,
-        'completed_frames' : nsf.navigated_for_frames,
+        'completed_frames' : i + 1,
         'stop_status' : my_status
     }
 
@@ -170,7 +159,7 @@ for v in id_str_vars:
     if not n_trials_by_variable[variables.index(v)] > 1:
         id_str_vars.remove(v)
 
-remove_anyway = ['landscape_class', 'landscape_diffuse_time']
+remove_anyway = [] #['landscape_class', 'landscape_diffuse_time']
 for ra in remove_anyway:
     if ra in id_str_vars:
         id_str_vars.remove(ra)
@@ -183,43 +172,10 @@ comm = MPI.COMM_WORLD
 assert n_trials >= comm.size, "n_trials %i < comm size %i" % (n_trials, comm.size)
 
 if comm.rank == 0:
-    logger.info("Making output directories...")
-    # Deal with output dir
-    if os.path.isdir(output_dir):
-        logger.warning("Output dir exists; appending number")
-        i = 1
-        while True:
-            if i >= 100:
-                logger.error("Couldn't make output dir that doesn't already exist")
-                comm.Abort()
-            dirname = output_dir.rstrip('/') + ("-%02i" % i) + '/'
-
-            if not os.path.exists(dirname):
-                output_dir = dirname
-                break
-            else:
-                i += 1
-
-    logger.info("Creating output dir...")
-    os.mkdir(output_dir)
-
-    # Create trial dirs
-    os.mkdir(output_dir + "/trials/")
-    # Split over landscapes
-    for landscape_class in variable_dict['landscape_class']:
-        cdir = output_dir + "/trials/landscape_class_%s" % landscape_class
-        os.mkdir(cdir)
-        for diff_time in variable_dict['landscape_diffuse_time']:
-            os.mkdir(cdir + "/landscape_diffuse_time_%i" % diff_time)
-
     logger.info("Starting...")
     logger.info("Running a total of %i trials over %i processes" % (n_trials, comm.size))
     # Log start time
     start_time = time.time()
-
-output_dir = comm.bcast(output_dir, root = 0)
-
-os.chdir(output_dir)
 
 # Distribute Trials
 part_trials = np.array_split(trials, comm.size)
@@ -263,16 +219,12 @@ for i, trial_vals in enumerate(my_trials):
 
     start_offset = trial.pop("start_offset")
 
-    save_to = "trials/landscape_class_%s/landscape_diffuse_time_%i/" % (landscape_class, landscape_diff_time)
-    logger.debug("Task %i saving to '%s'", comm.rank, save_to)
     trial_result = run_experiment(
-                       save_to,
-                       id_str,
                        training_path = tpath,
                        nsf_params = trial,
                        frames = frames,
                        starting_pos = tpath[1] + start_offset,
-                       starting_angle = np.arctan2(*list(tpath[2] - tpath[1])) % 2 * np.pi
+                       starting_angle = np.arctan2(*(list(tpath[2] - tpath[1])[::-1])) % (2 * np.pi) # y then x for arctan2
                    )
 
     for vi, val in enumerate(trial_vals):
