@@ -191,7 +191,7 @@ class NavBySceneFamiliarity(object):
             self._error_tempdiff2 = np.empty(len(self.training_path))
             self._error_tempdiff3 = np.empty(len(self.training_path), dtype = np.bool)
             self._coverage_array = np.zeros(len(self.training_path))
-
+            
     @property
     def navigation_error(self):
         return np.sqrt(self._navigation_error / self._n_navigation_error)
@@ -437,6 +437,7 @@ class NavBySceneFamiliarity(object):
         status_ax = plt.subplot(gs[3, :])
 
         # -- Set titles, ticks, etc.
+        max_fam = self._familiarity_func.max_familiarity
 
         scene_ax.set_title("Familiarity")
         scene_ax.set_xlabel("Training Scene")
@@ -467,32 +468,32 @@ class NavBySceneFamiliarity(object):
         scene_min = scene_ax.axvline(0, color = NAVCOLOR, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
         scene_min_box =  matplotlib.patches.Rectangle(xy = (0., 0.),
                                                    width = 2 * scene_inset_width + 1,
-                                                   height = 0.5 * self.n_sensor_pixels,
+                                                   height = max_fam,
                                                    alpha = 0.05,
                                                    animated = True,
                                                    color = NAVCOLOR)
         scene_ax.add_patch(scene_min_box)
         scene_ln, = scene_ax.plot(scene_ln_x, self.scene_familiarity, color = 'k', animated = True, linewidth = 0.75)
-        scene_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
+        scene_ax.set_ylim((0.3 * max_fam, max_fam))
         scene_ax.yaxis.set_major_locator(plt.NullLocator())
 
         scene_inset_ax = inset_locator.inset_axes(scene_ax,
                                     width="35%",
                                     height="30%",
-                                    loc = 1)
+                                    loc = 4)
         scene_inset_ax.set_zorder(5)
-        scene_inset_ax.set_facecolor([min(e + 0.76, 1.0) for e in matplotlib.colors.to_rgb(NAVCOLOR)])
+        scene_inset_ax.set_facecolor([min(e + 0.86, 1.0) for e in matplotlib.colors.to_rgb(NAVCOLOR)])
         scene_inset_ax.axvline(scene_inset_width, color = NAVCOLOR, zorder = 1, alpha = 0.6, linewidth = 1.)
         scene_inset_dat = np.zeros(scene_inset_width * 2 + 1)
         scene_inset_ln, = scene_inset_ax.plot(np.arange(len(scene_inset_dat)), scene_inset_dat, color = 'k', animated = True, linewidth = 0.75, zorder = 10)
-        scene_inset_ax.set_ylim((0, 0.3 * self.n_sensor_pixels))
+        scene_inset_ax.set_ylim((0.7 * max_fam, max_fam))
         scene_inset_ax.xaxis.set_major_locator(plt.NullLocator())
         scene_inset_ax.yaxis.set_major_locator(plt.NullLocator())
 
         angle_min = angle_ax.axvline(0, color = NAVCOLOR, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
         angle_ln_x = 180. * self.angle_offsets / np.pi
         angle_ln, = angle_ax.plot(angle_ln_x, self.angle_familiarity, color = 'k', animated = True)
-        angle_ax.set_ylim((0, 0.5 * self.n_sensor_pixels))
+        angle_ax.set_ylim((0.3 * max_fam, max_fam))
         angle_ax.xaxis.set_major_formatter(StrMethodFormatter(u"{x:.0f}°"))
         angle_ax.yaxis.set_major_locator(plt.NullLocator())
 
