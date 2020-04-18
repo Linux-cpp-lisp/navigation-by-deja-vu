@@ -8,52 +8,18 @@ import shutil
 
 # -------- GLOBAL SETTINGS --------
 
-OUTFILE_NAME = 'output.npz'
-
-FRAME_FACTOR = 1.2
+FRAME_FACTOR = 3.0
 TRAINING_SCENE_ARCLEN_FACTOR = 0.5
 
 # --------- EXPERIMENTAL VARIABLES ----
 # ---- TEST VARS ----
-# variable_dict = {
-#     'landscape_class' : ["test_set"], # At this point, just checkerboard = 1
-#     'landscape_diffuse_time' : [450], #
-#     'training_path_curve' : [1.0],
-#     'saccade_degrees' : [90.],
-#     'n_sensor_levels' : [4, 8],
-#     'sensor_dimensions' : [(40, 1)],
-#     'sensor_pixel_dimensions' : [(2, 4)],
-#     'start_offset' : [np.array([3.5, 3.5])]
-# }
-
-# --- REAL VARS ---
-variable_dict = {
-    'landscape_class' : ["irreg"], #Don't do irreg yet # At this point, just checkerboard = 1
-    'landscape_diffuse_time' : [0, 125, 450, 750, 1400], # These will be different and higher
-    'training_path_curve' : [0.0, 0.5, 1.0],
-    'sensor_dimensions' : [(40, 4, 2, 2),
-                           (40, 2, 2, 4),
-                           (40, 1, 2, 8),
-                           (20, 1, 4, 8),
-                           (10, 1, 8, 8)],
-    # These are chosen to hold total sensor area constant
-    # want at least some blurring to avoid weird effects at the highest resultion,
-    # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
-
-    'n_sensor_levels' : [2, 4, 8, 16],
-    'saccade_degrees' : [30., 60., 90.],
-    # Sensor is 80px wide, so 1/16th width is 5px. We'll divide that a little
-    # in each direction. (3.5 is the side length of a right isoceles with
-    # a hypotenuse of ~5.)
-    # 5.65 is hypot of 8px.
-    'start_offset' : [np.array([0., 0.]), np.array([3.5, 3.5]), np.array([5.65, 5.65])], # Units are px
-    # Step size as a fraction of sensor depth
-    'step_size' : [0.25, 1.0, 2.0]
-}
+import os, sys
+# Run as:
+# run_experiment.py [test|syn|sand] landscape_dir/
 
 defaults = {
     'angular_resolution' : 3, #degrees
-    'max_distance_to_training_path' : 80,
+    'max_distance_to_training_path' : 250,
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
 }
 
@@ -64,10 +30,7 @@ result_variables = {
     'stop_status' : np.int
 }
 
-assert VARIABLE_DIRECTORY_NESTING_LEVELS < len(variable_dict)
-
 # ---------------------- RUN STUFF ----------------------------------------
-
 
 import logging
 logging.basicConfig()
@@ -76,15 +39,10 @@ logger.setLevel(logging.INFO)
 
 from navsim import NavBySceneFamiliarity, StopNavigationException
 
-import sys, os, glob, time
+import  glob, time
 import pickle
 
 from mpi4py import MPI
-
-# Run as:
-# run_experiment.py landscape_dir/
-
-landscape_dir = os.path.abspath(sys.argv[1])
 
 # ------ FUNCTIONS ----------
 
@@ -101,7 +59,7 @@ def sin_training_path(curveness, start_x, l, arclen = 2.0):
     return path
 
 loaded_landscapes = dict()
-def make_nsf(params):
+def make_nsf(params, landscape_dir):
     trial = dict(defaults)
     trial.update(params)
 
@@ -113,6 +71,7 @@ def make_nsf(params):
     # step_size is given as a fraction of the forward-facing dimension
     # of the sensor.
     sensor_pixel_depth = trial['sensor_dimensions'][1] * trial['sensor_pixel_dimensions'][1]
+    sensor_pixel_width = trial['sensor_dimensions'][0] * trial['sensor_pixel_dimensions'][0]
     trial['step_size'] = trial['step_size'] * sensor_pixel_depth
 
     # Memoize landscapes
@@ -128,7 +87,8 @@ def make_nsf(params):
     trial['landscape'] = landscape
 
     # Training Path
-    margin = 1.5 * np.max(np.multiply(trial['sensor_dimensions'], trial['sensor_pixel_dimensions'])) // 2
+    #margin = 2.5 * np.max(np.multiply(trial['sensor_dimensions'], trial['sensor_pixel_dimensions'])) // 2
+    margin = 0.25 * np.min(landscape.shape)
     tpath = sin_training_path(trial.pop('training_path_curve'),
                               margin,
                               np.min(landscape.shape) - 2 * margin,
@@ -141,8 +101,15 @@ def make_nsf(params):
 
     nsf = NavBySceneFamiliarity(**trial)
     nsf.train_from_path(tpath)
-    nsf.position = tpath[1] + start_offset,
+
     nsf.angle = np.arctan2(*(list(tpath[2] - tpath[1])[::-1])) % (2 * np.pi) # y then x for arctan2
+    nsf.angle += np.deg2rad(start_offset[1])
+    offset = [
+        np.cos(nsf.angle + 0.5*np.pi) * start_offset[0] * sensor_pixel_width,
+        np.sin(nsf.angle + 0.5*np.pi) * start_offset[0] * sensor_pixel_width,
+    ]
+    nsf.position = tpath[1] + offset
+
 
     return nsf
 
@@ -170,76 +137,128 @@ def run_experiment(nsf,
         'stop_status' : my_status
     }
 
+if __name__ == '__main__':
+    mode = sys.argv[1]
+    landscape_dir = os.path.abspath(sys.argv[2])
 
-for k in variable_dict:
-    variable_dict[k] = np.asarray(variable_dict[k])
+    if mode == 'test':
+        variable_dict = {
+            'landscape_class' : ["test_set"], # At this point, just checkerboard = 1
+            'landscape_diffuse_time' : [450], #
+            'training_path_curve' : [0.0, 0.5],
+            'sensor_dimensions' : [(40, 1, 2, 8)],
+            'n_sensor_levels' : [4],
+            'saccade_degrees' : [60.,],
+            'start_offset' : [(0., 0.), (0.1, -10.)], # Units are px
+            # Step size as a fraction of sensor depth
+            'step_size' : [1.0]
+        }
+    elif mode == 'syn' or mode == 'sand':
+        # --- REAL VARS ---
+        if mode == 'syn':
+            lclass = ["irreg", "checker"]
+            #ldiff = [0, 125, 450, 750, 1400]
+            ldiff = [0, 10, 50, 100, 150, 250, 500, 1000, 2000]
+        elif mode == 'sand':
+            lclass = ['sand1', 'sand2']
+            ldiff = [0]
 
-n_variables = len(variable_dict)
-variables = list(variable_dict.keys())
-variables.sort() # get a consistant variable ordering. Just in case we're running on old python
-trials = list(itertools.product(*[variable_dict[k] for k in variables]))
-n_trials_by_variable = [len(variable_dict[k]) for k in variables]
-n_trials = len(trials)
+        variable_dict = {
+            'landscape_class' : lclass,
+            'landscape_diffuse_time' : ldiff,
+            'training_path_curve' : [0.0, 0.5, 1.0],
+            'sensor_dimensions' : [(40, 4, 2, 2),
+                                   (40, 2, 2, 4),
+                                   (40, 1, 2, 8),
+                                   (20, 1, 4, 8),
+                                   (10, 1, 8, 8)],
+            # These are chosen to hold total sensor area constant
+            # want at least some blurring to avoid weird effects at the highest resultion,
+            # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
 
-# Housekeeping
+            'n_sensor_levels' : [2, 4, 8, 16],
+            'saccade_degrees' : [10., 30., 60., 90.],
+            # Fraction of sensor width and an angle offset
+            'start_offset' : [(0., 0.), (0.1, 0.), (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
+            # Step size as a fraction of sensor depth
+            'step_size' : [1.]
+        }
+    else:
+        raise ValueError("Invalid mode '%s'" % mode)
 
-comm = MPI.COMM_WORLD
+    for k in variable_dict:
+        variable_dict[k] = np.asarray(variable_dict[k])
 
-assert n_trials >= comm.size, "n_trials %i < comm size %i" % (n_trials, comm.size)
+    n_variables = len(variable_dict)
+    variables = list(variable_dict.keys())
+    variables.sort() # get a consistant variable ordering. Just in case we're running on old python
+    trials = list(itertools.product(*[variable_dict[k] for k in variables]))
+    n_trials_by_variable = [len(variable_dict[k]) for k in variables]
+    n_trials = len(trials)
 
-if comm.rank == 0:
-    logger.info("Starting...")
-    logger.info("Running a total of %i trials over %i processes" % (n_trials, comm.size))
-    # Log start time
-    start_time = time.time()
+    # Housekeeping
 
-# Distribute Trials
-part_trials = np.array_split(trials, comm.size)
-my_trials = part_trials[comm.rank]
+    comm = MPI.COMM_WORLD
 
-logger.debug("Task %i has %i trials" % (comm.rank, len(my_trials)))
+    assert n_trials >= comm.size, "n_trials %i < comm size %i" % (n_trials, comm.size)
 
-# Set up result arrays
-my_variable_values = [np.empty(
-                        shape = (len(my_trials),) + variable_dict[v].shape[1:],
-                        dtype = variable_dict[v].dtype
-                      ) for v in variables]
-my_results = {}
-for resvar in result_variables:
-    my_results[resvar] = np.empty(shape = len(my_trials), dtype = result_variables[resvar])
+    if comm.rank == 0:
+        logger.info("Starting...")
+        logger.info("Running a total of %i trials over %i processes" % (n_trials, comm.size))
+        # Log start time
+        start_time = time.time()
 
-for i, trial_vals in enumerate(my_trials):
-    # - Set up dict for convinience
-    trial = dict(zip(variables, trial_vals))
+    # Distribute Trials
+    part_trials = np.array_split(trials, comm.size)
+    my_trials = part_trials[comm.rank]
 
-    if i % 50 == 0:
-        logger.info("Task %i running its trial %i/%i" % (comm.rank, i + 1, len(my_trials)))
+    logger.debug("Task %i has %i trials" % (comm.rank, len(my_trials)))
 
-    nsf = make_nsf(trial)
-    trial_result = run_experiment(nsf)
+    # Set up result arrays
+    my_variable_values = [np.empty(
+                            shape = (len(my_trials),) + variable_dict[v].shape[1:],
+                            dtype = variable_dict[v].dtype
+                          ) for v in variables]
+    my_results = {}
+    for resvar in result_variables:
+        my_results[resvar] = np.empty(shape = len(my_trials), dtype = result_variables[resvar])
 
-    for vi, val in enumerate(trial_vals):
-        my_variable_values[vi][i] = val
+    for i, trial_vals in enumerate(my_trials):
+        # - Set up dict for convinience
+        trial = dict(zip(variables, trial_vals))
 
-    for resvar in result_variables.keys():
-        my_results[resvar][i] = trial_result[resvar]
+        if i % 50 == 0:
+            logger.info("Task %i running its trial %i/%i" % (comm.rank, i + 1, len(my_trials)))
+
+        nsf = make_nsf(trial, landscape_dir)
+        trial_result = run_experiment(nsf)
+
+        for vi, val in enumerate(trial_vals):
+            my_variable_values[vi][i] = val
+
+        for resvar in result_variables.keys():
+            my_results[resvar][i] = trial_result[resvar]
 
 
-gathered = comm.gather((my_variable_values, my_results), root = 0)
+    gathered = comm.gather((my_variable_values, my_results), root = 0)
 
-if comm.rank == 0:
-    all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar] for e in gathered))) for resvar in result_variables.keys()])
-    all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
+    if comm.rank == 0:
+        all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar] for e in gathered))) for resvar in result_variables.keys()])
+        all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
 
-    for resarr in all_results.values():
-        assert len(all_vars[0]) == len(resarr)
+        for resarr in all_results.values():
+            assert len(all_vars[0]) == len(resarr)
 
-    to_save = dict(zip(variables, all_vars))
-    to_save.update(all_results)
+        to_save = dict(zip(variables, all_vars))
+        to_save.update(all_results)
 
-    np.savez("output.npz", **to_save)
-    # Also save the same data in MATLAB format for convinience
-    scipy.io.savemat("output.mat", to_save)
+        to_save['variable_dict'] = variable_dict
 
-    logger.info("Done! Finished %i trials" % len(all_vars[0]))
-    logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
+        datestring = time.strftime("%Y-%m-%d")
+        np.savez("output-%s-%s.npz" % (mode, datestring), **to_save)
+        # Also save the same data in MATLAB format for convinience
+        scipy.io.savemat("output-%s-%s.mat" % (mode, datestring), to_save)
+
+        logger.info("Done! Finished %i trials" % len(all_vars[0]))
+        logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
+        logger.info("Each trial added about %.2fs of wall-clock time" % ((time.time() - start_time) / len(all_vars[0])))
