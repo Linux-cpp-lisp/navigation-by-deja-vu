@@ -66,6 +66,21 @@ def sin_training_path(curveness, start_x, l, arclen = 2.0):
 
     return path
 
+def chop_path_to_len(path, length):
+    lens = np.linalg.norm(path[1:] - path[:-1], axis = 1)
+    assert np.sum(lens) >= length
+    start = 0
+    end = len(path)
+    for _ in range(len(path)):
+        if np.sum(lens[start:end]) <= length:
+            break
+        start += 1
+        if np.sum(lens[start:end]) <= length:
+            break
+        end -= 1
+    assert np.sum(lens[start:end]) <= length
+    return path[start:end]
+
 loaded_landscapes = dict()
 def make_nsf(params, landscape_dir):
     trial = dict(defaults)
@@ -105,12 +120,13 @@ def make_nsf(params, landscape_dir):
     trial['landscape'] = landscape
 
     # Training Path
-    #margin = 2.5 * np.max(np.multiply(trial['sensor_dimensions'], trial['sensor_pixel_dimensions'])) // 2
-    margin = 0.25 * np.min(landscape.shape)
+    margin = 0.2 * np.min(landscape.shape) # Slightly larger margin for some play
     tpath = sin_training_path(trial.pop('training_path_curve'),
                               margin,
                               np.min(landscape.shape) - 2 * margin,
                               arclen = trial['step_size'] * TRAINING_SCENE_ARCLEN_FACTOR)
+    margin = 0.25 * np.min(landscape.shape) # Crop to the real margin
+    tpath = chop_path_to_len(tpath, np.sqrt(2 * (np.min(landscape.shape) - 2 * margin)**2))
 
     angular_resolution = trial.pop('angular_resolution')
     trial['n_test_angles'] = int(trial['saccade_degrees'] / angular_resolution)
