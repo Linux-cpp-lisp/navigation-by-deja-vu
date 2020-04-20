@@ -179,7 +179,7 @@ if __name__ == '__main__':
 
     if mode == 'test':
         variable_dict = {
-            'landscape_class' : ["irreg"],
+            'landscape_class' : ["irreg1"],
             'landscape_noise_factor' : np.repeat([0.0, 0.25], 2),
             'training_path_curve' : [0.0, 0.5],
             'sensor_dimensions' : [(40, 1, 2, 8)],
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     elif mode == 'syn' or mode == 'sand':
         # --- REAL VARS ---
         if mode == 'syn':
-            lclass = ["irreg", "checker"]
+            lclass = ["irreg1", "irreg2", "checker"]
         elif mode == 'sand':
             lclass = ['sand1', 'sand2']
 
