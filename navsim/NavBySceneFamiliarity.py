@@ -78,6 +78,7 @@ class NavBySceneFamiliarity(object):
                  max_distance_to_training_path = np.inf,
                  n_sensor_levels = 5,
                  threshold_factor = 2.,
+                 coverage_threshold_factor = 0.8,
                  saccade_degrees = 180.,
                  sensor_real_area = None,
                  familiarity_model = sads_familiarity):
@@ -89,6 +90,7 @@ class NavBySceneFamiliarity(object):
         self.familiar_scenes = None
         self.n_test_angles = n_test_angles
         self.threshold_factor = threshold_factor
+        self.coverage_threshold_factor = coverage_threshold_factor
 
         self.sensor_real_area = sensor_real_area
 
@@ -190,8 +192,8 @@ class NavBySceneFamiliarity(object):
             self._error_tempdiff1 = np.empty(self.training_path.shape)
             self._error_tempdiff2 = np.empty(len(self.training_path))
             self._error_tempdiff3 = np.empty(len(self.training_path), dtype = np.bool)
-            self._coverage_array = np.zeros(len(self.training_path))
-            
+            self._coverage_array = np.zeros(len(self.training_path), dtype = np.bool)
+
     @property
     def navigation_error(self):
         return np.sqrt(self._navigation_error / self._n_navigation_error)
@@ -199,6 +201,39 @@ class NavBySceneFamiliarity(object):
     @property
     def percent_recapitulated(self):
         return np.sum(self._coverage_array) / len(self._coverage_array)
+
+
+    def percent_recapitulated_forgiving(self, n_consecutive_scenes = 0.05):
+        """
+        Return the percentage of the training path recapitulated, while being
+        forgiving: only the furthest stretch when the agent is on the
+        training path is considered. (So if it gets lost at the beginning
+        but catches the path from 50-75%, this will be 75%.) How many consecutive
+        training scenes the agent needs to be "on" the path is determined by
+        `n_consecutive_scenes`, which is given as a percentage of the total number
+        of scenes.
+        """
+        n_consecutive_scenes = int(n_consecutive_scenes * len(self.training_path))
+        for i in range(len(self.training_path), n_consecutive_scenes - 1, -1):
+            if np.all(self._coverage_array[i - n_consecutive_scenes:i]):
+                return i / len(self.training_path)
+        return 0.
+
+    def n_captures(self, n_consecutive_scenes = 0.05):
+        """
+        Return the number of "captures": times the agent got onto the training
+        path after being off it
+        How many consecutive
+        training scenes the agent needs to be "on" the path is determined by
+        `n_consecutive_scenes`, which is given as a percentage of the total number
+        of scenes.
+        """
+        n_consecutive_scenes = int(n_consecutive_scenes * len(self.training_path))
+        out = 0
+        for i in range(len(self.training_path) - n_consecutive_scenes):
+            if (not self._coverage_array[i]) and np.all(self._coverage_array[i+1:i+1+n_consecutive_scenes]):
+                out += 1
+        return out
 
     def update_error(self):
         self.navigated_for_frames += 1
@@ -219,12 +254,12 @@ class NavBySceneFamiliarity(object):
         self._n_navigation_error += 1
 
         # - % COVERAGE ERROR
-        cvge_thresh = self.threshold_factor * self.step_size
+        cvge_thresh = self.coverage_threshold_factor * self.step_size
         if diff <= cvge_thresh:
             # There will be at least one:
             np.less_equal(self._error_tempdiff2, cvge_thresh, out = self._error_tempdiff3)
             # Mark all within step size as covered
-            self._coverage_array[self._error_tempdiff3] = True
+            self._coverage_array |= self._error_tempdiff3
 
 
     def step_forward(self, fake = False):
@@ -448,9 +483,9 @@ class NavBySceneFamiliarity(object):
         for spline in ["top", "bottom", "left", "right"]:
             status_ax.spines[spline].set_visible(False)
 
-        status_string = "%s. RMSD error: %0.2f; Coverage: %i%%"
+        status_string = "%s. RMSD error: %0.2f; Coverage: %i%% (forgiving: %i%%);"
         info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
-        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0, 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
+        status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0, 0.0, 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
 
         sensor_ax.set_title("Sensor Matrix")
         init_sens_mat = np.zeros(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
@@ -528,7 +563,7 @@ class NavBySceneFamiliarity(object):
                 except StopNavigationException as e:
                     self._anim_stop_cond = True
                     self.stopped_with_exception = e
-                    status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error, 100 * self.percent_recapitulated))
+                    status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error, 100 * self.percent_recapitulated, 100 * self.percent_recapitulated_forgiving()))
                     status_txt.set_color("red")
 
                     #anim_ref[0].event_source.stop()
@@ -537,7 +572,7 @@ class NavBySceneFamiliarity(object):
                 xpos.append(self.position[0]); ypos.append(self.position[1])
                 path_ln.set_data(xpos, ypos)
 
-                status_txt.set_text(status_string % ("Navigating - position (%4.1f, %4.1f) heading %.0f°" % (self.position[0], self.position[1], 180. * self.angle / np.pi), self.navigation_error, 100*  self.percent_recapitulated))
+                status_txt.set_text(status_string % ("Navigating - position (%4.1f, %4.1f) heading %.0f°" % (self.position[0], self.position[1], 180. * self.angle / np.pi), self.navigation_error, 100*  self.percent_recapitulated, 100 * self.percent_recapitulated_forgiving()))
 
                 sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
                                     self.position[1] - sens_rect_dims[0] * np.sin(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
