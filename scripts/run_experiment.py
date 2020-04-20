@@ -9,7 +9,12 @@ import shutil
 # -------- GLOBAL SETTINGS --------
 
 FRAME_FACTOR = 3.0
-TRAINING_SCENE_ARCLEN_FACTOR = 0.5
+TRAINING_SCENE_ARCLEN_FACTOR = 0.5 # Essentially, 2x training over the same path.
+# IN the future, when multiple training paths are added, this will go up to
+# 1.0 and I'll explicitly have trials with two overlapping training paths.
+#TRAINING_SCENE_ARCLEN_FACTOR = 1.0
+
+N_CONSECUTIVE_SCENES = 0.05 # 5% of training path length. Seems reasonable.
 
 # --------- EXPERIMENTAL VARIABLES ----
 # ---- TEST VARS ----
@@ -19,7 +24,7 @@ import os, sys
 
 defaults = {
     'angular_resolution' : 3, #degrees
-    'max_distance_to_training_path' : 250,
+    'max_distance_to_training_path' : 200, # Enough that not possible on 1000x1000 landscape to go out of bounds.
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
 }
 
@@ -27,7 +32,9 @@ result_variables = {
     'path_coverage' : np.float,
     'rmsd_error' : np.float,
     'completed_frames' : np.int,
-    'stop_status' : np.int
+    'stop_status' : np.int,
+    'n_captures' : np.int,
+    'percent_forgiving' : np.float
 }
 
 # ---------------------- RUN STUFF ----------------------------------------
@@ -38,6 +45,7 @@ logger = logging.getLogger('experiments')
 logger.setLevel(logging.INFO)
 
 from navsim import NavBySceneFamiliarity, StopNavigationException
+from navsim.generate_landscapes import image_from_prob_mat
 
 import  glob, time
 import pickle
@@ -76,13 +84,23 @@ def make_nsf(params, landscape_dir):
 
     # Memoize landscapes
     landscape_class = trial.pop("landscape_class")
-    landscape_diff_time = trial.pop("landscape_diffuse_time")
+    landscape_diff_time = trial.pop("landscape_diffuse_time", 0)
     lkey = (landscape_class, landscape_diff_time)
     if lkey in loaded_landscapes:
         landscape = loaded_landscapes[lkey]
     else:
         landscape = np.load(landscape_dir + ("/%s/landscape-diffuse-%i.npy" % lkey))
         loaded_landscapes[lkey] = landscape
+
+    l_noise = trial.pop('landscape_noise_factor', 0)
+    assert 0 <= l_noise <= 1
+    if l_noise != 0:
+        # 0.5 constant is the probability for white noise.
+        # Treating landscape as a probability landscape.
+        probmat = (1 - l_noise)*landscape + (l_noise * 0.5)
+        # Draw fresh each trial to emphasize the spirit of noise, rather than
+        # doing a static pattern.
+        landscape = image_from_prob_mat(probmat)
 
     trial['landscape'] = landscape
 
@@ -134,8 +152,10 @@ def run_experiment(nsf,
         'path_coverage' : nsf.percent_recapitulated,
         'rmsd_error' : nsf.navigation_error,
         'completed_frames' : completed_frames,
-        'stop_status' : my_status
-    }
+        'stop_status' : my_status,
+        'percent_forgiving' : nsf.percent_recapitulated_forgiving(n_consecutive_scenes = N_CONSECUTIVE_SCENES),
+        'n_captures' : nsf.n_captures(n_consecutive_scenes = N_CONSECUTIVE_SCENES)
+     }
 
 if __name__ == '__main__':
     mode = sys.argv[1]
@@ -143,13 +163,13 @@ if __name__ == '__main__':
 
     if mode == 'test':
         variable_dict = {
-            'landscape_class' : ["test_set"], # At this point, just checkerboard = 1
-            'landscape_diffuse_time' : [450], #
+            'landscape_class' : ["irreg"],
+            'landscape_noise_factor' : np.repeat([0.0, 0.25], 2),
             'training_path_curve' : [0.0, 0.5],
             'sensor_dimensions' : [(40, 1, 2, 8)],
             'n_sensor_levels' : [4],
             'saccade_degrees' : [60.,],
-            'start_offset' : [(0., 0.), (0.1, -10.)], # Units are px
+            'start_offset' : [(0., 0.)], # Units are px
             # Step size as a fraction of sensor depth
             'step_size' : [1.0]
         }
@@ -157,15 +177,12 @@ if __name__ == '__main__':
         # --- REAL VARS ---
         if mode == 'syn':
             lclass = ["irreg", "checker"]
-            #ldiff = [0, 125, 450, 750, 1400]
-            ldiff = [0, 10, 50, 100, 150, 250, 500, 1000, 2000]
         elif mode == 'sand':
             lclass = ['sand1', 'sand2']
-            ldiff = [0]
 
         variable_dict = {
             'landscape_class' : lclass,
-            'landscape_diffuse_time' : ldiff,
+            'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 2),
             'training_path_curve' : [0.0, 0.5, 1.0],
             'sensor_dimensions' : [(40, 4, 2, 2),
                                    (40, 2, 2, 4),
