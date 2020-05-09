@@ -9,7 +9,8 @@ import shutil
 # -------- GLOBAL SETTINGS --------
 
 FRAME_FACTOR = 3.0
-TRAINING_SCENE_ARCLEN_FACTOR = 0.5 # Essentially, 2x training over the same path.
+TRAINING_SCENE_ARCLEN_FACTOR = 1.0 # Set to 1:1
+# Essentially, 2x training over the same path.
 # IN the future, when multiple training paths are added, this will go up to
 # 1.0 and I'll explicitly have trials with two overlapping training paths.
 #TRAINING_SCENE_ARCLEN_FACTOR = 1.0
@@ -67,6 +68,10 @@ def sin_training_path(curveness, start_x, l, arclen = 2.0):
     return path
 
 def chop_path_to_len(path, length):
+    """
+    Chop a path given as a list of points down to a given length, taking
+    points off the front and back alternatingly.
+    """
     lens = np.linalg.norm(path[1:] - path[:-1], axis = 1)
     assert np.sum(lens) >= length
     start = 0
@@ -80,6 +85,7 @@ def chop_path_to_len(path, length):
         end -= 1
     assert np.sum(lens[start:end]) <= length
     return path[start:end]
+
 
 loaded_landscapes = dict()
 def make_nsf(params, landscape_dir):
@@ -179,7 +185,7 @@ if __name__ == '__main__':
 
     if mode == 'test':
         variable_dict = {
-            'landscape_class' : ["irreg1"],
+            'landscape_class' : ["irreg2"],
             'landscape_noise_factor' : np.repeat([0.0, 0.25], 2),
             'training_path_curve' : [0.0, 0.5],
             'sensor_dimensions' : [(40, 1, 2, 8)],
@@ -198,7 +204,7 @@ if __name__ == '__main__':
 
         variable_dict = {
             'landscape_class' : lclass,
-            'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 2),
+            'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'training_path_curve' : [0.0, 0.5, 1.0],
             'sensor_dimensions' : [(40, 4, 2, 2),
                                    (40, 2, 2, 4),
