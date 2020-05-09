@@ -5,6 +5,9 @@ the smallest square size that can be inscribed in the circle given by the
 cropped image. (This automatically deals with the circular mask from the
 microscope.)
 
+``<outdim>'' gives, in the format 'NxM', the dimension of the output image
+in tiles.
+
 Usage:
   autostitch.py <dir> <outdim> [--crop-threshold=<thresh>] [--downscale=<factor>] [--crossfade=<n>] [--px-per-mm=<n>] [--crop-to-size=<dims>] [--n-rotations=<nrots>]
 
