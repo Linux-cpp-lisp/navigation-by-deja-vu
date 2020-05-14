@@ -19,6 +19,7 @@ Options:
   --crossfade=<n>           Crossfade n pixels at each boundary
   --px-per-mm=<n>           Compute and print real-world sizes with given conversion factor [default: 1].
   --crop-to-size=<dims>     Crop the final image to this size in pixels, format NxM
+  --generate-n=<n>          Generate n different final images. [default: 1]
 """
 
 import numpy as np
@@ -46,6 +47,8 @@ px_per_mm = int(args['--px-per-mm']) #450
 crop_to_size = args['--crop-to-size']
 n_rotations = int(args['--n-rotations'])
 final_size = [int(e) for e in args['<outdim>'].split('x')]
+generate_n = int(args['--generate-n'])
+
 if crop_to_size is not None:
     crop_to_size = tuple(int(e) for e in crop_to_size.split('x'))
 
@@ -97,38 +100,36 @@ for i in range(len(tiles)):
 
 out_tile_shape = tuple(s - tile_margin for s in tile_shape)
 
-out = np.zeros(
+out = np.empty(
     shape = tuple(out_tile_shape[i] * final_size[i] + 2*tile_margin for i in range(2)),
     dtype = tiles[0].dtype
 )
 
-# Choose randomly without replacement.
-tile_choices = rng.choice(len(tiles), size = tuple(final_size), replace = False)
+for image_i in tqdm(range(generate_n)):
+    out.fill(0)
 
-for i, j in itertools.product(*[range(i) for i in final_size]):
-    out[i * out_tile_shape[0]:(i + 1) * out_tile_shape[0] + tile_margin,
-        j * out_tile_shape[1]:(j + 1) * out_tile_shape[1] + tile_margin] += tiles[tile_choices[i, j]]
+    # Choose randomly without replacement.
+    tile_choices = RNG.choice(len(tiles), size = tuple(final_size), replace = False)
 
-out = out[tile_margin:-2*tile_margin, tile_margin:-2*tile_margin]
+    for i, j in itertools.product(*[range(i) for i in final_size]):
+        out[i * out_tile_shape[0]:(i + 1) * out_tile_shape[0] + tile_margin,
+            j * out_tile_shape[1]:(j + 1) * out_tile_shape[1] + tile_margin] += tiles[tile_choices[i, j]]
 
-print("Final size: %ix%ipx ~= %.2fx%.2fmm" % (out.shape[0], out.shape[1], out.shape[0] / px_per_mm, out.shape[1] / px_per_mm))
+    out = out[tile_margin:-2*tile_margin, tile_margin:-2*tile_margin]
 
-assert np.max(out) <= 1.
-assert np.min(out) >= 0.
+    print("Final size: %ix%ipx ~= %.2fx%.2fmm" % (out.shape[0], out.shape[1], out.shape[0] / px_per_mm, out.shape[1] / px_per_mm))
 
-print("Constrast...")
-out_im = Image.fromarray(out * 255.).convert('L')
-out_im = ImageOps.autocontrast(out_im)
+    assert np.max(out) <= 1.
+    assert np.min(out) >= 0.
 
-print("Cropping...")
-if crop_to_size is not None:
-    out_im = out_im.crop(box = (0, 0, crop_to_size[0], crop_to_size[1]))
+    print("Constrast...")
+    out_im = Image.fromarray(out * 255.).convert('L')
+    out_im = ImageOps.autocontrast(out_im)
 
-print("Showing...")
-out_im.show()
+    print("Cropping...")
+    if crop_to_size is not None:
+        out_im = out_im.crop(box = (0, 0, crop_to_size[0], crop_to_size[1]))
 
-print("Saving...")
+    print("Saving...")
 
-out_im.save("out.png", format = 'png')
-
-print("Done!")
+    out_im.save("out-%i.png" % image_i, format = 'png')
