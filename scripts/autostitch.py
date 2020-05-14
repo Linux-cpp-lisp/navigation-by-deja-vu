@@ -9,7 +9,7 @@ microscope.)
 in tiles.
 
 Usage:
-  autostitch.py <dir> <outdim> [--crop-threshold=<thresh>] [--downscale=<factor>] [--crossfade=<n>] [--px-per-mm=<n>] [--crop-to-size=<dims>] [--n-rotations=<nrots>]
+  autostitch.py <dir> <outdim> [--crop-threshold=<thresh>] [--downscale=<factor>] [--crossfade=<n>] [--px-per-mm=<n>] [--crop-to-size=<dims>] [--n-rotations=<nrots>] [--generate-n=<n>]
 
 Options:
   -h --help                 Show this screen
@@ -115,15 +115,15 @@ for image_i in tqdm(range(generate_n)):
         out[i * out_tile_shape[0]:(i + 1) * out_tile_shape[0] + tile_margin,
             j * out_tile_shape[1]:(j + 1) * out_tile_shape[1] + tile_margin] += tiles[tile_choices[i, j]]
 
-    out = out[tile_margin:-2*tile_margin, tile_margin:-2*tile_margin]
+    out_crop = out[tile_margin:-2*tile_margin, tile_margin:-2*tile_margin]
 
-    print("Final size: %ix%ipx ~= %.2fx%.2fmm" % (out.shape[0], out.shape[1], out.shape[0] / px_per_mm, out.shape[1] / px_per_mm))
+    print("Final size: %ix%ipx ~= %.2fx%.2fmm" % (out_crop.shape[0], out_crop.shape[1], out_crop.shape[0] / px_per_mm, out_crop.shape[1] / px_per_mm))
 
-    assert np.max(out) <= 1.
-    assert np.min(out) >= 0.
+    assert np.max(out_crop) <= 1.
+    assert np.min(out_crop) >= 0.
 
     print("Constrast...")
-    out_im = Image.fromarray(out * 255.).convert('L')
+    out_im = Image.fromarray(out_crop * 255.).convert('L')
     out_im = ImageOps.autocontrast(out_im)
 
     print("Cropping...")
