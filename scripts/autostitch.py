@@ -122,9 +122,10 @@ for image_i in tqdm(range(generate_n)):
     assert np.max(out_crop) <= 1.
     assert np.min(out_crop) >= 0.
 
-    print("Constrast...")
+    print("Constrast and equalization...")
     out_im = Image.fromarray(out_crop * 255.).convert('L')
     out_im = ImageOps.autocontrast(out_im)
+    out_im = ImageOps.equalize(out_im)
 
     print("Cropping...")
     if crop_to_size is not None:
@@ -132,4 +133,4 @@ for image_i in tqdm(range(generate_n)):
 
     print("Saving...")
 
-    out_im.save("out-%i.png" % image_i, format = 'png')
+    out_im.save("landscape-%i.png" % image_i, format = 'png')
