@@ -22,6 +22,7 @@ Options:
 """
 
 import numpy as np
+RNG = np.random.default_rng()
 
 #import skimage as ski
 #from skimage.transform import downscale_local_mean
@@ -29,7 +30,6 @@ from PIL import Image, ImageOps
 
 import glob
 import itertools
-import random
 
 from tqdm import tqdm
 
@@ -45,12 +45,16 @@ scale_factor = int(args['--downscale']) #20
 px_per_mm = int(args['--px-per-mm']) #450
 crop_to_size = args['--crop-to-size']
 n_rotations = int(args['--n-rotations'])
+final_size = [int(e) for e in args['<outdim>'].split('x')]
 if crop_to_size is not None:
     crop_to_size = tuple(int(e) for e in crop_to_size.split('x'))
 
+if np.product(final_size) > len(globbed)*n_rotations:
+    raise ValueError("Not enough tiles (# tiles %i < total needed tiles %i). Add more tiles and/or increase --n-rotations" % ((len(globbed)*n_rotations), np.product(final_size)))
+
 tiles = []
 
-rotations = np.linspace(0, 360, n_rotations)
+rotations = np.linspace(0, 360., n_rotations)
 
 threshold_lut = np.empty(shape = 256)
 threshold_lut[:] = 255
@@ -91,8 +95,6 @@ for i in range(len(tiles)):
     tiles[i][:, -tile_margin:] *= gradient[::-1]
 
 
-final_size = [int(e) for e in args['<outdim>'].split('x')]
-
 out_tile_shape = tuple(s - tile_margin for s in tile_shape)
 
 out = np.zeros(
@@ -100,10 +102,12 @@ out = np.zeros(
     dtype = tiles[0].dtype
 )
 
+# Choose randomly without replacement.
+tile_choices = rng.choice(len(tiles), size = tuple(final_size), replace = False)
+
 for i, j in itertools.product(*[range(i) for i in final_size]):
-    tile = random.choice(tiles)
     out[i * out_tile_shape[0]:(i + 1) * out_tile_shape[0] + tile_margin,
-        j * out_tile_shape[1]:(j + 1) * out_tile_shape[1] + tile_margin] += tile[::random.choice([1, -1]), ::random.choice([1, -1])]
+        j * out_tile_shape[1]:(j + 1) * out_tile_shape[1] + tile_margin] += tiles[tile_choices[i, j]]
 
 out = out[tile_margin:-2*tile_margin, tile_margin:-2*tile_margin]
 
