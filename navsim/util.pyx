@@ -6,20 +6,55 @@ cimport cython
 
 from libc.math cimport fabs
 
-@cython.boundscheck(False)
-def sads(a_np, b_np):
-    cdef double [:, :] a = a_np
-    cdef double [:, :] b = b_np
+#@cython.boundscheck(False)
 
-    cdef double diff = 0.0
+def sads_familiarity(chem_weight = 0.0):
+    def sads_familiarity_internal(scenes):
+        assert 0 <= chem_weight <= 1
+        maxfam = scenes[0].shape[0] *  scenes[0].shape[1]
+        def func(scene, fambuf):
+            sads_hsv_metric(
+                scenes,
+                scene,
+                fambuf,
+                chem_weight
+            )
 
-    cdef Py_ssize_t i, j
+        func.max_familiarity = maxfam
 
-    for i in range(a_np.shape[0]):
-        for j in range(a_np.shape[1]):
-            diff += fabs(a[i, j] - b[i, j])
+        return func
+    return sads_familiarity_internal
 
-    return diff
+
+cdef void sads_hsv_metric(np.uint8_t [:, :, :, :] familiar_scenes,
+                          np.uint8_t [:, :, :] scene,
+                          np.float_t [:] fambuf,
+                          double chem_weight):
+
+    cdef np.float_t diff = 0.0
+    cdef np.float_t thispx = 0.0
+
+    cdef Py_ssize_t fam_idex, i, j
+    cdef Py_ssize_t xdim = scene.shape[0]
+    cdef Py_ssize_t ydim = scene.shape[1]
+    cdef np.float_t maxfam = xdim * ydim
+
+    for fam_idex in range(len(familiar_scenes)):
+        diff = 0.0
+        for i in range(xdim):
+            for j in range(ydim):
+                if scene[i, j, 0] == familiar_scenes[fam_idex, i, j, 0]:
+                    # Difference in concentration
+                    thispx = abs(scene[i, j, 1] - familiar_scenes[fam_idex, i, j, 1])
+                else:
+                    thispx = 255 # If different chemicals, maximum difference
+                # Weight
+                thispx *= chem_weight
+                thispx += (1 - chem_weight) * abs(scene[i, j, 2] - familiar_scenes[fam_idex, i, j, 2]) # SADS for V
+                # Normalize
+                thispx /= 255.
+                diff += thispx
+        fambuf[fam_idex] = maxfam - diff
 
 @cython.boundscheck(False)
 def ssds(a_np, b_np):

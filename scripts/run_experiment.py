@@ -47,7 +47,7 @@ logging.basicConfig()
 logger = logging.getLogger('experiments')
 logger.setLevel(logging.INFO)
 
-from navsim import NavBySceneFamiliarity, StopNavigationException
+from navsim import NavBySceneFamiliarity, StopNavigationException, sads_familiarity
 from navsim.generate_landscapes import image_from_prob_mat
 
 import  glob, time
@@ -110,41 +110,32 @@ def make_nsf(params, landscape_dir):
     if lkey in loaded_landscapes:
         landscape = loaded_landscapes[lkey]
     else:
-        landscape = np.asarray(Image.open(landscape_dir + ("/%s/%s" % lkey)))
-        landscape = landscape / np.max(landscape) # Turn 256 into 0-1
+        landscape = np.asarray(Image.open(landscape_dir + ("/%s/%s" % lkey)).convert('HSV'))
         # Memoize
         loaded_landscapes[lkey] = landscape
 
-    l_noise = trial.pop('landscape_noise_factor', 0)
-    assert 0 <= l_noise <= 1
-    if l_noise != 0:
-        # # 0.5 constant is the probability for white noise.
-        # # Treating landscape as a probability landscape.
-        # probmat = (1 - l_noise)*landscape + (l_noise * 0.5)
-        # # Draw fresh each trial to emphasize the spirit of noise, rather than
-        # # doing a static pattern.
-        # landscape = image_from_prob_mat(probmat)
-
-        # For greyscale, just to weighted sum
-        landscape = (1 - l_noise)*landscape + (l_noise * 0.5)
-
     trial['landscape'] = landscape
 
+    ldims = landscape.shape[:2]
+
     # Training Path
-    margin = 0.2 * np.min(landscape.shape) # Slightly larger margin for some play
+    margin = 0.2 * np.min(ldims) # Slightly larger margin for some play
     tpath = sin_training_path(trial.pop('training_path_curve'),
                               margin,
-                              np.min(landscape.shape) - 2 * margin,
+                              np.min(ldims) - 2 * margin,
                               arclen = trial['step_size'] * TRAINING_SCENE_ARCLEN_FACTOR)
-    margin = 0.25 * np.min(landscape.shape) # Crop to the real margin
-    tpath = chop_path_to_len(tpath, np.sqrt(2 * (np.min(landscape.shape) - 2 * margin)**2))
+    margin = 0.25 * np.min(ldims) # Crop to the real margin
+    tpath = chop_path_to_len(tpath, np.sqrt(2 * (np.min(ldims) - 2 * margin)**2))
 
     angular_resolution = trial.pop('angular_resolution')
     trial['n_test_angles'] = int(trial['saccade_degrees'] / angular_resolution)
 
     start_offset = trial.pop("start_offset")
 
-    nsf = NavBySceneFamiliarity(**trial)
+    nsf = NavBySceneFamiliarity(
+        familiarity_model = sads_familiarity(chem_weight = trial.pop('chem_weight', 0.)),
+        **trial
+    )
     nsf.train_from_path(tpath)
 
     nsf.angle = np.arctan2(*(list(tpath[2] - tpath[1])[::-1])) % (2 * np.pi) # y then x for arctan2
