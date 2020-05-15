@@ -4,7 +4,7 @@ import numpy as np
 cimport numpy as np
 cimport cython
 
-from libc.math cimport fabs
+from libc.math cimport fabs, round
 
 #@cython.boundscheck(False)
 
@@ -26,10 +26,10 @@ def sads_familiarity(chem_weight = 0.0):
     return sads_familiarity_internal
 
 
-cdef void sads_hsv_metric(np.uint8_t [:, :, :, :] familiar_scenes,
-                          np.uint8_t [:, :, :] scene,
+cdef void sads_hsv_metric(const np.uint8_t [:, :, :, :] familiar_scenes,
+                          const np.uint8_t [:, :, :] scene,
                           np.float_t [:] fambuf,
-                          double chem_weight):
+                          const double chem_weight):
 
     cdef np.float_t diff = 0.0
     cdef np.float_t thispx = 0.0
@@ -44,10 +44,24 @@ cdef void sads_hsv_metric(np.uint8_t [:, :, :, :] familiar_scenes,
         for i in range(xdim):
             for j in range(ydim):
                 if scene[i, j, 0] == familiar_scenes[fam_idex, i, j, 0]:
-                    # Difference in concentration
+                    # Same chemical, difference is concentration difference:
                     thispx = abs(scene[i, j, 1] - familiar_scenes[fam_idex, i, j, 1])
+                    # At most 255
                 else:
-                    thispx = 255 # If different chemicals, maximum difference
+                    # Since they are different chemicals, all stimulus increases
+                    # the difference between the two scenes, so we sum their
+                    # concentrations:
+                    thispx = scene[i, j, 1] + familiar_scenes[fam_idex, i, j, 1]
+                    # At most 2*255
+                # Since this can be twice as large as usual,
+                thispx *= 0.5
+                # Thus when the chemical is the same, the difference can be
+                # at most 127, half of the maximum. But when the chemicals are
+                # different, it can go up to a full 255.
+                # Thus,
+                #   same chem + same concentration: +0 to difference
+                #   same chem + diff concentration: +0.5*diff
+                #   diff chem + zero concentration: +0 diff
                 # Weight
                 thispx *= chem_weight
                 thispx += (1 - chem_weight) * abs(scene[i, j, 2] - familiar_scenes[fam_idex, i, j, 2]) # SADS for V
@@ -55,6 +69,55 @@ cdef void sads_hsv_metric(np.uint8_t [:, :, :, :] familiar_scenes,
                 thispx /= 255.
                 diff += thispx
         fambuf[fam_idex] = maxfam - diff
+
+
+def set_HS_where_equal(const np.int_t [:, :] labels,
+                       np.uint8_t [:, :, :] image,
+                       const np.uint8_t [:] H,
+                       const np.uint8_t [:] S):
+    cdef Py_ssize_t i, j
+    cdef np.int_t label
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            label =  labels[i, j]
+            if label > 0: # 0 is no label
+                image[i, j, 0] = H[label - 1]
+                image[i, j, 1] = S[label - 1]
+
+
+def downscale_chem(const np.uint8_t [:, :, :] image,
+                   const Py_ssize_t factor_rows,
+                   const Py_ssize_t factor_cols):
+    cdef np.ndarray concentrations_np = np.empty(shape = 256, dtype = np.int)
+    cdef np.int_t [:] concentrations = concentrations_np
+    cdef double avg_value = 0
+
+    out_size = (int(image.shape[0] // factor_rows), int(image.shape[1] // factor_cols), image.shape[2])
+    out_np = np.empty(shape = out_size, dtype = np.uint8)
+    cdef np.uint8_t [:, :, :] out = out_np
+
+    cdef Py_ssize_t n_row_blocks = out_size[0]
+    cdef Py_ssize_t n_col_blocks = out_size[1]
+    cdef Py_ssize_t block_i, block_j, i, j
+
+    for block_i in range(n_row_blocks):
+        for block_j in range(n_col_blocks):
+            concentrations[:] = 0
+            avg_value = 0
+            for i in range(factor_rows):
+                for j in range(factor_cols):
+                    concentrations[
+                        image[block_i*factor_rows + i, block_j*factor_cols + j, 0]
+                    ] += image[block_i*factor_rows + i, block_j*factor_cols + j, 1]
+                    avg_value += image[block_i*factor_rows + i, block_j*factor_cols + j, 2]
+            avg_value /= factor_rows*factor_cols
+            avg_value = round(avg_value)
+            out[block_i, block_j, 2] = <np.uint8_t>avg_value
+            out[block_i, block_j, 0] = np.argmax(concentrations_np)
+            out[block_i, block_j, 1] = <np.uint8_t>round(concentrations[out[block_i, block_j, 0]] / factor_rows*factor_cols)
+
+    return out_np
+
 
 @cython.boundscheck(False)
 def ssds(a_np, b_np):

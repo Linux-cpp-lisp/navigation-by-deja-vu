@@ -17,7 +17,7 @@ import itertools
 import math
 import warnings
 
-from navsim.util import sads_familiarity
+from navsim.util import sads_familiarity, downscale_chem
 
 class StopNavigationException(Exception):
     def get_reason(self):
@@ -163,26 +163,39 @@ class NavBySceneFamiliarity(object):
         out = self.landscape[position[1] - r:position[1] + r,
                              position[0] - r:position[0] + r]
 
-        out = skimage.transform.rotate(out, 270 + 180. * angle / np.pi)
-        out = skimage.transform.downscale_local_mean(out, (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0], 1))
+        out = skimage.transform.rotate(
+            out,
+            270 + 180. * angle / np.pi,
+            order = 0,
+        )
+        out = skimage.util.img_as_ubyte(out)
+        # We want spatial averaging for texture
+        #out[:, :, 2] = skimage.transform.downscale_local_mean(out[:, :, 2], (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0]))
+        out = downscale_chem(
+            out,
+            self.sensor_pixel_dimensions[1],
+            self.sensor_pixel_dimensions[0]
+        )
+
 
         r0 = out.shape[0] // 2
         r1 = out.shape[1] // 2
         out = out[r0 - int(np.floor(self.sensor_dimensions[1] / 2)) : r0 + int(np.ceil(self.sensor_dimensions[1] / 2)),
                   r1 - int(np.floor(self.sensor_dimensions[0] / 2)) : r1 + int(np.ceil(self.sensor_dimensions[0] / 2))]
 
-        byte_out = np.empty(shape = out.shape, dtype = np.uint8)
-        compbuf = nlevels = None
+        roundbuf = np.empty(shape = (out.shape[0], out.shape[1]), dtype = np.float32)
+        #byte_out = np.empty(shape = out.shape, dtype = np.uint8)
+        nlevels = None
         for component in range(3):
-            compbuf = out[:, :, component]
+            roundbuf[:] = out[:, :, component]
             nlevels = self.n_sensor_levels[component]
-            compbuf *= (nlevels - 1)
-            np.rint(compbuf, out = compbuf)
-            compbuf /= (nlevels - 1)
-            compbuf *= 255
-            byte_out[:, :, component] = compbuf
+            roundbuf *= (nlevels - 1)
+            np.rint(roundbuf, out = roundbuf)
+            roundbuf /= (nlevels - 1)
+            roundbuf *= 255
+            out[:, :, component] = roundbuf
 
-        return byte_out
+        return out
 
 
     def reset_error(self):
