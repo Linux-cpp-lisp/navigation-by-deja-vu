@@ -11,11 +11,12 @@ import matplotlib.font_manager as fm
 import matplotlib.colors
 
 import skimage
+import skimage.transform
 import itertools
 import math
 import warnings
 
-from navsim.util import sads
+from navsim.util import sads, ssds
 
 class StopNavigationException(Exception):
     def get_reason(self):
@@ -56,6 +57,16 @@ def sads_familiarity(scenes):
     def func(scene, fambuf):
         for f_index in range(len(scenes)):
             fambuf[f_index] = maxfam - sads(scene, scenes[f_index])
+
+    func.max_familiarity = maxfam
+
+    return func
+
+def ssds_familiarity(scenes):
+    maxfam = scenes[0].shape[0] *  scenes[0].shape[1]
+    def func(scene, fambuf):
+        for f_index in range(len(scenes)):
+            fambuf[f_index] = maxfam - ssds(scene, scenes[f_index])
 
     func.max_familiarity = maxfam
 

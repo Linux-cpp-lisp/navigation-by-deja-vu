@@ -8,8 +8,6 @@ from libc.math cimport fabs
 
 @cython.boundscheck(False)
 def sads(a_np, b_np):
-    assert a_np.shape == b_np.shape
-
     cdef double [:, :] a = a_np
     cdef double [:, :] b = b_np
 
@@ -20,6 +18,21 @@ def sads(a_np, b_np):
     for i in range(a_np.shape[0]):
         for j in range(a_np.shape[1]):
             diff += fabs(a[i, j] - b[i, j])
+
+    return diff
+
+@cython.boundscheck(False)
+def ssds(a_np, b_np):
+    cdef double [:, :] a = a_np
+    cdef double [:, :] b = b_np
+
+    cdef double diff = 0.0
+
+    cdef Py_ssize_t i, j
+
+    for i in range(a_np.shape[0]):
+        for j in range(a_np.shape[1]):
+            diff += (a[i, j] - b[i, j])**2
 
     return diff
 
