@@ -1,23 +1,30 @@
 import numpy as np
+RNG = np.random.default_rng()
+
 import scipy.io
 import matplotlib.pyplot as plt
 
 import itertools
 import math
 import shutil
+from tqdm import tqdm
 
 from PIL import Image
+import skimage.measure
+import skimage.filters.rank
 
 # -------- GLOBAL SETTINGS --------
 
 FRAME_FACTOR = 3.0
-TRAINING_SCENE_ARCLEN_FACTOR = 1.0 # Set to 1:1
+TRAINING_SCENE_ARCLEN_FACTOR = 1/3 # Set to 1:1
 # Essentially, 2x training over the same path.
 # IN the future, when multiple training paths are added, this will go up to
 # 1.0 and I'll explicitly have trials with two overlapping training paths.
 #TRAINING_SCENE_ARCLEN_FACTOR = 1.0
 
 N_CONSECUTIVE_SCENES = 0.05 # 5% of training path length. Seems reasonable.
+
+LANDSCAPE_THRESHOLD = 200
 
 # --------- EXPERIMENTAL VARIABLES ----
 # ---- TEST VARS ----
@@ -48,6 +55,7 @@ logger = logging.getLogger('experiments')
 logger.setLevel(logging.INFO)
 
 from navsim import NavBySceneFamiliarity, StopNavigationException, sads_familiarity
+from navsim.util import set_HS_where_equal
 from navsim.generate_landscapes import image_from_prob_mat
 
 import  glob, time
@@ -88,6 +96,24 @@ def chop_path_to_len(path, length):
     assert np.sum(lens[start:end]) <= length
     return path[start:end]
 
+def add_chemistry(landscape, grainlabels, grainprops,
+                  min_grain_diameter = 2,
+                  n_chemicals = 2,
+                  concentration_range = (127, 128)):
+    n_grains = len(grainprops)
+    grainchems = RNG.integers(n_chemicals, size = n_grains, dtype = np.uint8) * (255 // n_chemicals) # Evenly space hue
+    grainsats = RNG.integers(concentration_range[0], concentration_range[1], size = n_grains, dtype = np.uint8) # Saturation (concentration) in given range
+    for grain in range(n_grains):
+        if grainprops[grain].equivalent_diameter < min_grain_diameter:
+            grainsats[grain] = 0
+
+    set_HS_where_equal(
+        grainlabels,
+        landscape,
+        grainchems,
+        grainsats
+    )
+
 
 loaded_landscapes = dict()
 def make_nsf(params, landscape_dir):
@@ -106,13 +132,36 @@ def make_nsf(params, landscape_dir):
     # Memoize landscapes
     landscape_class = trial.pop("landscape_class")
     landscape_name = trial.pop("landscape_name")
+    min_chem_grain_diameter = trial.pop('min_chem_grain_diameter', 2)
     lkey = (landscape_class, landscape_name)
     if lkey in loaded_landscapes:
-        landscape = loaded_landscapes[lkey]
+        landscape, grainlabels, grainprops = loaded_landscapes[lkey]
     else:
         landscape = np.asarray(Image.open(landscape_dir + ("/%s/%s" % lkey)).convert('HSV'))
+        # Threshold on value
+        for_labeling = (landscape[:, :, 2] >= LANDSCAPE_THRESHOLD).astype(np.uint8)
+        neighborhood_width = min_chem_grain_diameter // 2
+        if not neighborhood_width == 0:
+            if neighborhood_width % 2 == 0:
+                neighborhood_width -= 1
+            for_labeling = skimage.filters.rank.modal(
+                for_labeling,
+                np.ones((neighborhood_width, neighborhood_width), dtype = np.uint8)
+            )
+        grainlabels = skimage.measure.label(for_labeling)
+        grainprops = skimage.measure.regionprops(grainlabels)
         # Memoize
-        loaded_landscapes[lkey] = landscape
+        loaded_landscapes[lkey] = (landscape, grainlabels, grainprops)
+
+    n_chemicals = trial.pop("n_chemicals", 1)
+    if n_chemicals > 1:
+        landscape = landscape.copy()
+        add_chemistry(
+            landscape, grainlabels, grainprops,
+            min_grain_diameter = min_chem_grain_diameter,
+            n_chemicals = n_chemicals,
+            concentration_range = trial.pop("concentration_range", (127, 128))
+        )
 
     trial['landscape'] = landscape
 
