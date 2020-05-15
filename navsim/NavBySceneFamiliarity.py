@@ -162,42 +162,14 @@ class NavBySceneFamiliarity(object):
 
         out = self.landscape[position[1] - r:position[1] + r,
                              position[0] - r:position[0] + r]
-        # # PIL is upper left origin, we're lower left
-        # out = Image.fromarray(out[:, ::-1, :], mode = 'HSV')
-        # out = out.rotate(90 - 180. * angle / np.pi , resample = Image.BILINEAR)
-        # out = out.crop()
-        # out = out.resize(self.sensor_dimensions, resample = Image.BILINEAR)
-        # out = np.array(out)
-        # #^ but PIL puts things back when they convert out
 
-        out = skimage.transform.rotate(out, 270. + 180. * angle / np.pi)
-        # out = skimage.transform.rescale(
-        #     out,
-        #     (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0]),
-        #     multichannel = True
-        # )
+        out = skimage.transform.rotate(out, 270 + 180. * angle / np.pi)
         out = skimage.transform.downscale_local_mean(out, (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0], 1))
 
         r0 = out.shape[0] // 2
         r1 = out.shape[1] // 2
         out = out[r0 - int(np.floor(self.sensor_dimensions[1] / 2)) : r0 + int(np.ceil(self.sensor_dimensions[1] / 2)),
                   r1 - int(np.floor(self.sensor_dimensions[0] / 2)) : r1 + int(np.ceil(self.sensor_dimensions[0] / 2))]
-
-        # Quantize (note max is 255)
-        # roundbuf = np.empty(shape = (out.shape[0], out.shape[1]), dtype = np.float32)
-        # nlevels = None
-        # for component in range(3):
-        #     nlevels = self.n_sensor_levels[component]
-        #     if nlevels == 256:
-        #         continue # Nothing to be done
-        #     roundbuf[:] = out[:, :, component]
-        #     roundbuf /= 255
-        #     roundbuf *= (nlevels - 1)
-        #     np.rint(roundbuf, out = roundbuf)
-        #     roundbuf /= (nlevels - 1)
-        #     roundbuf *= 255
-        #     out[:, :, component] = roundbuf
-        # del roundbuf
 
         byte_out = np.empty(shape = out.shape, dtype = np.uint8)
         compbuf = nlevels = None
@@ -615,9 +587,9 @@ class NavBySceneFamiliarity(object):
                     navigation_error = self.navigation_error
                     percent_recapitulated = self.percent_recapitulated
                     percent_recapitulated_forgiving = self.percent_recapitulated_forgiving()
-                new_sens_mat = self.get_sensor_mat(position, angle)
                 # Step forward
                 try:
+                    new_sens_mat = self.get_sensor_mat(position, angle)
                     self.step_forward()
                 except StopNavigationException as e:
                     self._anim_stop_cond = True
@@ -626,7 +598,7 @@ class NavBySceneFamiliarity(object):
                             "Stopped: %s" % e.get_reason(),
                             navigation_error,
                             100 * percent_recapitulated,
-                            100 * percent_recapitulated_forgiving()
+                            100 * percent_recapitulated_forgiving
                         )
                     )
                     status_txt.set_color("red")
