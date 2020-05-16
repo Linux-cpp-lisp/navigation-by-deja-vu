@@ -6,7 +6,6 @@ cimport cython
 
 from libc.math cimport fabs, round
 
-#@cython.boundscheck(False)
 
 def sads_familiarity(chem_weight = 0.0):
     def sads_familiarity_internal(scenes):
@@ -26,6 +25,9 @@ def sads_familiarity(chem_weight = 0.0):
     return sads_familiarity_internal
 
 
+@cython.boundscheck(False)
+@cython.cdivision(True)
+@cython.wraparound(False)
 cdef void sads_hsv_metric(const np.uint8_t [:, :, :, :] familiar_scenes,
                           const np.uint8_t [:, :, :] scene,
                           np.float_t [:] fambuf,
@@ -71,6 +73,7 @@ cdef void sads_hsv_metric(const np.uint8_t [:, :, :, :] familiar_scenes,
         fambuf[fam_idex] = maxfam - diff
 
 
+@cython.boundscheck(False)
 def set_HS_where_equal(const np.int_t [:, :] labels,
                        np.uint8_t [:, :, :] image,
                        const np.uint8_t [:] H,
@@ -85,13 +88,16 @@ def set_HS_where_equal(const np.int_t [:, :] labels,
                 image[i, j, 1] = S[label - 1]
 
 
+@cython.boundscheck(False)
+@cython.cdivision(True)
+@cython.wraparound(False)
 def downscale_chem(const np.uint8_t [:, :, :] image,
                    const Py_ssize_t factor_rows,
                    const Py_ssize_t factor_cols):
-    cdef np.ndarray concentrations_np = np.empty(shape = 256, dtype = np.int)
-    cdef np.int_t [:] concentrations = concentrations_np
+    cdef np.int_t concentrations[256]
     cdef double avg_value = 0
     cdef double avg_sat = 0
+    cdef np.uint8_t which_chem_most = 0
 
     out_size = (int(image.shape[0] // factor_rows), int(image.shape[1] // factor_cols), image.shape[2])
     out_np = np.empty(shape = out_size, dtype = np.uint8)
@@ -99,11 +105,12 @@ def downscale_chem(const np.uint8_t [:, :, :] image,
 
     cdef Py_ssize_t n_row_blocks = out_size[0]
     cdef Py_ssize_t n_col_blocks = out_size[1]
-    cdef Py_ssize_t block_i, block_j, i, j
+    cdef Py_ssize_t block_i, block_j, i, j, k
 
     for block_i in range(n_row_blocks):
         for block_j in range(n_col_blocks):
-            concentrations[:] = 0
+            for k in range(256):
+                concentrations[k] = 0
             avg_value = 0
             for i in range(factor_rows):
                 for j in range(factor_cols):
@@ -113,15 +120,15 @@ def downscale_chem(const np.uint8_t [:, :, :] image,
                     avg_value += image[block_i*factor_rows + i, block_j*factor_cols + j, 2]
             avg_value /= factor_rows*factor_cols
             avg_value = round(avg_value)
-            # Clamp it:
             out[block_i, block_j, 2] = <np.uint8_t>avg_value
-            out[block_i, block_j, 0] = np.argmax(concentrations_np)
-            avg_sat = round(concentrations[out[block_i, block_j, 0]] / factor_rows*factor_cols)
-            # Clamp it:
-            # if avg_sat > 255:
-            #     avg_sat = 255
-            # elif avg_sat < 0:
-            #     avg_sat = 0
+
+            # Take argmax
+            which_chem_most = 0
+            for k in range(256):
+                if concentrations[k] > concentrations[which_chem_most]:
+                    which_chem_most = k
+            out[block_i, block_j, 0] = which_chem_most
+            avg_sat = round(concentrations[which_chem_most] / factor_rows*factor_cols)
             out[block_i, block_j, 1] = <np.uint8_t>avg_sat
 
     return out_np
