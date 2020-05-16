@@ -91,6 +91,7 @@ def downscale_chem(const np.uint8_t [:, :, :] image,
     cdef np.ndarray concentrations_np = np.empty(shape = 256, dtype = np.int)
     cdef np.int_t [:] concentrations = concentrations_np
     cdef double avg_value = 0
+    cdef double avg_sat = 0
 
     out_size = (int(image.shape[0] // factor_rows), int(image.shape[1] // factor_cols), image.shape[2])
     out_np = np.empty(shape = out_size, dtype = np.uint8)
@@ -112,9 +113,16 @@ def downscale_chem(const np.uint8_t [:, :, :] image,
                     avg_value += image[block_i*factor_rows + i, block_j*factor_cols + j, 2]
             avg_value /= factor_rows*factor_cols
             avg_value = round(avg_value)
+            # Clamp it:
             out[block_i, block_j, 2] = <np.uint8_t>avg_value
             out[block_i, block_j, 0] = np.argmax(concentrations_np)
-            out[block_i, block_j, 1] = <np.uint8_t>round(concentrations[out[block_i, block_j, 0]] / factor_rows*factor_cols)
+            avg_sat = round(concentrations[out[block_i, block_j, 0]] / factor_rows*factor_cols)
+            # Clamp it:
+            # if avg_sat > 255:
+            #     avg_sat = 255
+            # elif avg_sat < 0:
+            #     avg_sat = 0
+            out[block_i, block_j, 1] = <np.uint8_t>avg_sat
 
     return out_np
 

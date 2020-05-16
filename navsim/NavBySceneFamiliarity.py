@@ -122,6 +122,7 @@ class NavBySceneFamiliarity(object):
         self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[1], self.sensor_dimensions[0], self.landscape.shape[2]), dtype = self.landscape.dtype)
 
         angles = points[1:] - points[0:-1]
+        self.training_path_length = np.sum(np.linalg.norm(angles, axis = 1))
         angles = np.arctan2(angles[:,1], angles[:, 0])
 
         i = 0
@@ -165,10 +166,19 @@ class NavBySceneFamiliarity(object):
 
         out = skimage.transform.rotate(
             out,
-            270 + 180. * angle / np.pi,
+            -90 + 180. * angle / np.pi,
             order = 0,
         )
         out = skimage.util.img_as_ubyte(out)
+
+        # print(out.shape)
+        # plt.figure()
+        # plt.imshow(
+        #     np.asarray(Image.fromarray(out, mode='HSV').convert('RGB')),
+        #     origin = 'lower'
+        # )
+        # plt.show(block = True)
+
         # We want spatial averaging for texture
         #out[:, :, 2] = skimage.transform.downscale_local_mean(out[:, :, 2], (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0]))
         out = downscale_chem(
@@ -177,11 +187,29 @@ class NavBySceneFamiliarity(object):
             self.sensor_pixel_dimensions[0]
         )
 
+        # print(out.shape)
+        # plt.figure()
+        # plt.imshow(
+        #     np.asarray(Image.fromarray(out, mode='HSV').convert('RGB')),
+        #     origin = 'lower',
+        #     aspect = self.sensor_pixel_dimensions[1] / self.sensor_pixel_dimensions[0]
+        # )
+        # plt.show(block = True)
+
 
         r0 = out.shape[0] // 2
         r1 = out.shape[1] // 2
         out = out[r0 - int(np.floor(self.sensor_dimensions[1] / 2)) : r0 + int(np.ceil(self.sensor_dimensions[1] / 2)),
                   r1 - int(np.floor(self.sensor_dimensions[0] / 2)) : r1 + int(np.ceil(self.sensor_dimensions[0] / 2))]
+
+        # print(out.shape)
+        # plt.figure()
+        # plt.imshow(
+        #     np.asarray(Image.fromarray(out, mode='HSV').convert('RGB')),
+        #     origin = 'lower',
+        #     aspect = self.sensor_pixel_dimensions[1] / self.sensor_pixel_dimensions[0]
+        # )
+        # plt.show(block = True)
 
         roundbuf = np.empty(shape = (out.shape[0], out.shape[1]), dtype = np.float32)
         #byte_out = np.empty(shape = out.shape, dtype = np.uint8)
@@ -189,11 +217,21 @@ class NavBySceneFamiliarity(object):
         for component in range(3):
             roundbuf[:] = out[:, :, component]
             nlevels = self.n_sensor_levels[component]
+            roundbuf /= 255
             roundbuf *= (nlevels - 1)
             np.rint(roundbuf, out = roundbuf)
             roundbuf /= (nlevels - 1)
             roundbuf *= 255
             out[:, :, component] = roundbuf
+
+        # print(out.shape)
+        # plt.figure()
+        # plt.imshow(
+        #     np.asarray(Image.fromarray(out, mode='HSV').convert('RGB')),
+        #     origin = 'lower',
+        #     aspect = self.sensor_pixel_dimensions[1] / self.sensor_pixel_dimensions[0]
+        # )
+        # plt.show(block = True)
 
         return out
 

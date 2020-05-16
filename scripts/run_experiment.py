@@ -15,8 +15,10 @@ import skimage.filters.rank
 
 # -------- GLOBAL SETTINGS --------
 
+PX_PER_MM = 450 / 33
+
 FRAME_FACTOR = 3.0
-TRAINING_SCENE_ARCLEN_FACTOR = 1/3 # Set to 1:1
+#TRAINING_SCENE_ARCLEN_FACTOR = 1/3 # Set to 1:1
 # Essentially, 2x training over the same path.
 # IN the future, when multiple training paths are added, this will go up to
 # 1.0 and I'll explicitly have trials with two overlapping training paths.
@@ -33,7 +35,7 @@ import os, sys
 # run_experiment.py [test|syn|sand] landscape_dir/
 
 defaults = {
-    'angular_resolution' : 3, #degrees
+    'n_test_angles' : 10,
     'max_distance_to_training_path' : 400, # Enough that not possible on 1000x1000 landscape to go out of bounds.
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
 }
@@ -144,6 +146,7 @@ def make_nsf(params, landscape_dir):
         if not neighborhood_width == 0:
             if neighborhood_width % 2 == 0:
                 neighborhood_width -= 1
+            neighborhood_width = int(neighborhood_width)
             for_labeling = skimage.filters.rank.modal(
                 for_labeling,
                 np.ones((neighborhood_width, neighborhood_width), dtype = np.uint8)
@@ -154,7 +157,7 @@ def make_nsf(params, landscape_dir):
         loaded_landscapes[lkey] = (landscape, grainlabels, grainprops)
 
     n_chemicals = trial.pop("n_chemicals", 1)
-    if n_chemicals > 1:
+    if n_chemicals >= 1:
         landscape = landscape.copy()
         add_chemistry(
             landscape, grainlabels, grainprops,
@@ -169,15 +172,13 @@ def make_nsf(params, landscape_dir):
 
     # Training Path
     margin = 0.2 * np.min(ldims) # Slightly larger margin for some play
+    tpath_arclen = trial['step_size'] / (0.5 * trial['n_test_angles'])
     tpath = sin_training_path(trial.pop('training_path_curve'),
                               margin,
                               np.min(ldims) - 2 * margin,
-                              arclen = trial['step_size'] * TRAINING_SCENE_ARCLEN_FACTOR)
+                              arclen = tpath_arclen)
     margin = 0.25 * np.min(ldims) # Crop to the real margin
     tpath = chop_path_to_len(tpath, np.sqrt(2 * (np.min(ldims) - 2 * margin)**2))
-
-    angular_resolution = trial.pop('angular_resolution')
-    trial['n_test_angles'] = int(trial['saccade_degrees'] / angular_resolution)
 
     start_offset = trial.pop("start_offset")
 
@@ -202,7 +203,7 @@ def make_nsf(params, landscape_dir):
 def run_experiment(nsf,
                    frames = None):
     if frames is None:
-        frames = int(FRAME_FACTOR * TRAINING_SCENE_ARCLEN_FACTOR * len(nsf.training_path))
+        frames = int(FRAME_FACTOR * nsf.training_path_length / nsf.step_size)
 
     my_status = None
     completed_frames = 0
@@ -230,39 +231,65 @@ if __name__ == '__main__':
 
     if mode == 'test':
         variable_dict = {
+            # == Environmental properties ==
             'landscape_class' : ['sand2020'],
-            'landscape_name' : os.listdir(landscape_dir + '/' + 'sand2020'),
-            # 'landscape_noise_factor' : np.repeat([0.0, 0.25], 2),
-            'training_path_curve' : [0.0, 0.5],
-            'sensor_dimensions' : [(40, 1, 2, 8)],
-            'n_sensor_levels' : [4],
-            'saccade_degrees' : [60.,],
-            'start_offset' : [(0., 0.)], # Units are px
-            # Step size as a fraction of sensor depth
-            'step_size' : [1.0]
+            'landscape_name' : ['landscape-0.png'],
+            'training_path_curve' : [0.5],
+            # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
+            'n_chemicals' : [2],
+            'min_chem_grain_diameter' : np.array([1.0]) * PX_PER_MM,
+            'chem_weight' : [0., 0.5],
+            # == Agent properties ==
+            # One pectine width: 20x5 gives about 7.35mm wide
+            # and 1x12 gives about 0.88mm depth.
+            'sensor_dimensions' : [(20, 2, 6, 6),],
+            # These are chosen to hold total sensor area constant
+            # want at least some blurring to avoid weird effects at the highest resultion,
+            # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
+
+            'n_sensor_levels' : [4,],
+
+            # Step size/glimpse frequency properties
+            'step_size' : [1. * PX_PER_MM], # In milimeters
+            'saccade_degrees' : [35.], # Degrees, from data (35+-15)
+            'n_test_angles' : [15], # All odd so that 0 included
+
+            # == Other ==
+            # Fraction of sensor width and an angle offset
+            'start_offset' : [(0., 0.),], # Units are (frac, deg)
         }
     elif mode == 'sand':
         # --- REAL VARS ---
         variable_dict = {
+            # == Environmental properties ==
             'landscape_class' : ['sand2020'],
             'landscape_name' : os.listdir(landscape_dir + '/' + 'sand2020'),
-            # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'training_path_curve' : [0.0, 0.5, 1.0],
-            'sensor_dimensions' : [(40, 4, 2, 2),
-                                   (40, 2, 2, 4),
-                                   (40, 1, 2, 8),
-                                   (20, 1, 4, 8),
-                                   (10, 1, 8, 8)],
+            # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
+            'n_chemicals' : [0, 1, 2, 4],
+            'min_chem_grain_diameter' : np.array([0.5, 1.0, 1.5]) * PX_PER_MM,
+            'chem_weight' : [0., 0.25, 0.5, 0.75, 1.0],
+            # == Agent properties ==
+            # One pectine width: 20x5 gives about 7.35mm wide
+            # and 1x12 gives about 0.88mm depth.
+            'sensor_dimensions' : [(20, 1, 6, 12),
+                                   (20, 2, 6, 6),
+                                   (20, 4, 6, 3),
+                                   (20, 6, 6, 2)],
             # These are chosen to hold total sensor area constant
             # want at least some blurring to avoid weird effects at the highest resultion,
             # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
 
             'n_sensor_levels' : [2, 4, 8, 16],
-            'saccade_degrees' : [10., 30., 60., 90.],
+
+            # Step size/glimpse frequency properties
+            'step_size' : [1. * PX_PER_MM], # In milimeters
+            'saccade_degrees' : [20., 35., 50.], # Degrees, from data (35+-15)
+            'n_test_angles' : [11, 15], # All odd so that 0 included
+
+            # == Other ==
             # Fraction of sensor width and an angle offset
             'start_offset' : [(0., 0.), (0.1, 0.), (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
-            # Step size as a fraction of sensor depth
-            'step_size' : [1.]
         }
     else:
         raise ValueError("Invalid mode '%s'" % mode)
