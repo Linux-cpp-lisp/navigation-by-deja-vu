@@ -101,7 +101,7 @@ def chop_path_to_len(path, length):
 def add_chemistry(landscape, grainlabels, grainprops,
                   min_grain_diameter = 2,
                   n_chemicals = 2,
-                  concentration_range = (127, 128)):
+                  concentration_range = (255, 256)):
     n_grains = len(grainprops)
     grainchems = RNG.integers(n_chemicals, size = n_grains, dtype = np.uint8) * (255 // n_chemicals) # Evenly space hue
     grainsats = RNG.integers(concentration_range[0], concentration_range[1], size = n_grains, dtype = np.uint8) # Saturation (concentration) in given range
@@ -172,7 +172,7 @@ def make_nsf(params, landscape_dir):
 
     # Training Path
     margin = 0.2 * np.min(ldims) # Slightly larger margin for some play
-    tpath_arclen = trial['step_size'] / (0.5 * trial['n_test_angles'])
+    tpath_arclen = trial['step_size'] / (trial['n_test_angles'])
     tpath = sin_training_path(trial.pop('training_path_curve'),
                               margin,
                               np.min(ldims) - 2 * margin,
@@ -225,6 +225,8 @@ def run_experiment(nsf,
         'n_captures' : nsf.n_captures(n_consecutive_scenes = N_CONSECUTIVE_SCENES)
      }
 
+
+
 if __name__ == '__main__':
     mode = sys.argv[1]
     landscape_dir = os.path.abspath(sys.argv[2])
@@ -237,12 +239,13 @@ if __name__ == '__main__':
             'training_path_curve' : [0.5],
             # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'n_chemicals' : [2],
-            'min_chem_grain_diameter' : np.array([1.0]) * PX_PER_MM,
+            'min_chem_grain_diameter' : np.array([0.25]) * PX_PER_MM,
             'chem_weight' : [0., 0.5],
             # == Agent properties ==
             # One pectine width: 20x5 gives about 7.35mm wide
             # and 1x12 gives about 0.88mm depth.
-            'sensor_dimensions' : [(20, 2, 6, 6),],
+            'sensor_dimensions' : [(44, 1, 6, 12)],
+            'mask_middle_n' : [2],
             # These are chosen to hold total sensor area constant
             # want at least some blurring to avoid weird effects at the highest resultion,
             # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
@@ -267,15 +270,16 @@ if __name__ == '__main__':
             'training_path_curve' : [0.0, 0.5, 1.0],
             # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'n_chemicals' : [0, 1, 2, 4],
-            'min_chem_grain_diameter' : np.array([0.5, 1.0, 1.5]) * PX_PER_MM,
+            'min_chem_grain_diameter' : np.array([0.25]) * PX_PER_MM,
             'chem_weight' : [0., 0.25, 0.5, 0.75, 1.0],
             # == Agent properties ==
             # One pectine width: 20x5 gives about 7.35mm wide
             # and 1x12 gives about 0.88mm depth.
-            'sensor_dimensions' : [(20, 1, 6, 12),
-                                   (20, 2, 6, 6),
-                                   (20, 4, 6, 3),
-                                   (20, 6, 6, 2)],
+            'sensor_dimensions' : [(44, 1, 6, 12),
+                                   (44, 2, 6, 6),
+                                   (44, 4, 6, 3),
+                                   (44, 6, 6, 2)],
+            'mask_middle_n' : [2],
             # These are chosen to hold total sensor area constant
             # want at least some blurring to avoid weird effects at the highest resultion,
             # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
@@ -283,13 +287,13 @@ if __name__ == '__main__':
             'n_sensor_levels' : [2, 4, 8, 16],
 
             # Step size/glimpse frequency properties
-            'step_size' : [1. * PX_PER_MM], # In milimeters
-            'saccade_degrees' : [20., 35., 50.], # Degrees, from data (35+-15)
-            'n_test_angles' : [11, 15], # All odd so that 0 included
+            'step_size' : [1.3 * PX_PER_MM], # In milimeters
+            'saccade_degrees' : [30., 40., 50.], # Degrees, from data (35+-15)
+            'n_test_angles' : [15, 31], # All odd so that 0 included
 
             # == Other ==
             # Fraction of sensor width and an angle offset
-            'start_offset' : [(0., 0.), (0.1, 0.), (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
+            'start_offset' : [(0., 0.), (0.1, -5.), (-0.1, 7.), (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
         }
     else:
         raise ValueError("Invalid mode '%s'" % mode)
@@ -365,7 +369,7 @@ if __name__ == '__main__':
         datestring = time.strftime("%Y-%m-%d")
         np.savez("output-%s-%s.npz" % (mode, datestring), **to_save)
         # Also save the same data in MATLAB format for convinience
-        scipy.io.savemat("output-%s-%s.mat" % (mode, datestring), to_save)
+        # scipy.io.savemat("output-%s-%s.mat" % (mode, datestring), to_save)
 
         logger.info("Done! Finished %i trials" % len(all_vars[0]))
         logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
