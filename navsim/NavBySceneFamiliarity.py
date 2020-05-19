@@ -69,6 +69,7 @@ class NavBySceneFamiliarity(object):
                  sensor_pixel_dimensions = [1, 1],
                  max_distance_to_training_path = np.inf,
                  n_sensor_levels = 5,
+                 mask_middle_n = 0,
                  threshold_factor = 2.,
                  coverage_threshold_factor = 0.8,
                  saccade_degrees = 180.,
@@ -82,6 +83,7 @@ class NavBySceneFamiliarity(object):
 
         self.familiar_scenes = None
         self.n_test_angles = n_test_angles
+        self.mask_middle_n = mask_middle_n
         self.threshold_factor = threshold_factor
         self.coverage_threshold_factor = coverage_threshold_factor
 
@@ -142,15 +144,6 @@ class NavBySceneFamiliarity(object):
         self._familiarity_func = self.familiarity_model(self.familiar_scenes)
 
 
-    def _make_sensor_mask(self):
-        circ_mask = np.ones(shape = (self.sensor_size, self.sensor_size), dtype = np.bool)
-        for i, j in itertools.product(range(self.sensor_size), repeat=2):
-            if np.ceil(np.sqrt((i - (self.sensor_size - 1) / 2) **2 + (j - (self.sensor_size - 1) / 2)**2)) <= self.sensor_radius:
-                circ_mask[i, j] = 0
-
-        return circ_mask
-
-
     def get_sensor_mat(self, position, angle):
         position = np.round(position).astype(np.int)
         r = self._sensor_r
@@ -201,6 +194,9 @@ class NavBySceneFamiliarity(object):
             roundbuf /= (nlevels - 1)
             roundbuf *= 255
             out[:, :, component] = roundbuf
+
+        # Zero out the middle n pixels
+        out[:, r1 - self.mask_middle_n:r1 + self.mask_middle_n] = 0
 
         return out
 
