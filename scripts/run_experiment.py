@@ -261,12 +261,21 @@ if __name__ == '__main__':
             # Fraction of sensor width and an angle offset
             'start_offset' : [(0., 0.),], # Units are (frac, deg)
         }
-    elif mode == 'sand':
+    elif mode.startswith('sand'):
         # --- REAL VARS ---
+        # landscape_name
+        # os.listdir(landscape_dir + '/' + 'sand2020')
+        if mode == 'sand0:
+            landscape_names = ['landscape-0.png']
+        elif mode == 'sand1':
+            landscape_names = ['landscape-1.png']
+        else:
+            raise ValueError("Invalid Mode!")
+
         variable_dict = {
             # == Environmental properties ==
             'landscape_class' : ['sand2020'],
-            'landscape_name' : os.listdir(landscape_dir + '/' + 'sand2020'),
+            'landscape_name' : landscape_names,
             'training_path_curve' : [0.0, 0.5, 1.0],
             # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'n_chemicals' : [0, 1, 2, 4],
