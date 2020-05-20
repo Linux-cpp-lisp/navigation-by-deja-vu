@@ -265,7 +265,7 @@ if __name__ == '__main__':
         # --- REAL VARS ---
         # landscape_name
         # os.listdir(landscape_dir + '/' + 'sand2020')
-        if mode == 'sand0:
+        if mode == 'sand0':
             landscape_names = ['landscape-0.png']
         elif mode == 'sand1':
             landscape_names = ['landscape-1.png']
