@@ -480,7 +480,7 @@ class NavBySceneFamiliarity(object):
                 zorder = agentz - 4
             )
 
-        return (fig, main_ax), stoped_for
+        return (fig, main_ax), stoped_for, np.vstack((xpos, ypos)).T
 
 
     def animate(self, frames, interval = 100):
