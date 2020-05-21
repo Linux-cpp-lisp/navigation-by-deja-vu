@@ -32,11 +32,11 @@ LANDSCAPE_THRESHOLD = 200
 # ---- TEST VARS ----
 import os, sys
 # Run as:
-# run_experiment.py [test|syn|sand] landscape_dir/
+# run_experiment.py [mode] landscape_dir/
 
 defaults = {
     'n_test_angles' : 10,
-    'max_distance_to_training_path' : 400, # Enough that not possible on 1000x1000 landscape to go out of bounds.
+    'max_distance_to_training_path' : 450, # Enough that not possible on 2000x2000 landscape to go out of bounds.
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
 }
 
@@ -52,7 +52,11 @@ result_variables = {
 # ---------------------- RUN STUFF ----------------------------------------
 
 import logging
-logging.basicConfig()
+logging.basicConfig(
+    format='%(asctime)s %(levelname)-8s %(message)s',
+    level=logging.INFO,
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger('experiments')
 logger.setLevel(logging.INFO)
 
@@ -131,7 +135,7 @@ def make_nsf(params, landscape_dir):
     # Don't do this anymore
     # trial['step_size'] = trial['step_size'] * sensor_pixel_depth
 
-    # Memoize landscapes
+    # == Memoize landscapes
     landscape_class = trial.pop("landscape_class")
     landscape_name = trial.pop("landscape_name")
     min_chem_grain_diameter = trial.pop('min_chem_grain_diameter', 2)
@@ -156,6 +160,7 @@ def make_nsf(params, landscape_dir):
         # Memoize
         loaded_landscapes[lkey] = (landscape, grainlabels, grainprops)
 
+    # ==  Add Chemistry
     n_chemicals = trial.pop("n_chemicals", 1)
     if n_chemicals >= 1:
         landscape = landscape.copy()
@@ -165,6 +170,12 @@ def make_nsf(params, landscape_dir):
             n_chemicals = n_chemicals,
             concentration_range = trial.pop("concentration_range", (127, 128))
         )
+
+    # == Landscape flips
+    landscape = landscape[
+        ::(-1 if trial.pop("landscape_flip_vertical", False) else 1),
+        ::(-1 if trial.pop("landscape_flip_horizontal", False) else 1)
+    ]
 
     trial['landscape'] = landscape
 
