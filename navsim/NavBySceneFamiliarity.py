@@ -17,7 +17,7 @@ import itertools
 import math
 import warnings
 
-from navsim.util import sads_familiarity, downscale_chem
+from navsim.util import sads_familiarity, downscale_chem, fill_sensor_from
 
 class StopNavigationException(Exception):
     def get_reason(self):
@@ -94,9 +94,11 @@ class NavBySceneFamiliarity(object):
 
         self.sensor_dimensions = np.asarray(sensor_dimensions)
         self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
-        assert np.all((self.sensor_dimensions * self.sensor_pixel_dimensions) % 2 == 0)
-        self._sensor_r = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions // 2)
+        sensor_landscape_pix_dim = (self.sensor_dimensions * self.sensor_pixel_dimensions)
+        assert np.all(sensor_landscape_pix_dim % 2 == 0)
+        self._sensor_r = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions / 2)
         self._roundbuf = np.empty(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]), dtype = np.float32)
+        self._landscape_glimpse_buf = np.empty(shape = (sensor_landscape_pix_dim[1], sensor_landscape_pix_dim[0], 3), dtype = np.uint8)
 
         self.n_sensor_pixels = np.product(self.sensor_dimensions)
 
@@ -152,44 +154,30 @@ class NavBySceneFamiliarity(object):
 
 
     def get_sensor_mat(self, position, angle):
-        position = np.round(position).astype(np.int)
+        #position = np.round(position).astype(np.int)
         r = self._sensor_r
         ldims = self.landscape.shape
 
-        if (position[0] < r) or (position[1] < r) or \
-           (position[0] > ldims[1] - r) or (position[1] > ldims[0] + r):
+        if (position[0] <= r) or (position[1] <= r) or \
+           (position[0] >= ldims[1] - r) or (position[1] >= ldims[0] - r):
             raise OutOfLandscapeBoundsException()
 
-        out = self.landscape[position[1] - r:position[1] + r,
-                             position[0] - r:position[0] + r]
-
-        out = skimage.transform.rotate(
-            out,
-            -90 + 180. * angle / np.pi,
-            order = 0,
+        # Fill a full-res sensor
+        fill_sensor_from(
+            self._landscape_glimpse_buf,
+            position[0], position[1],
+            angle, # already in radians
+            self.landscape
         )
-        out = skimage.util.img_as_ubyte(out)
 
-        # print(out.shape)
-        # plt.figure()
-        # plt.imshow(
-        #     np.asarray(Image.fromarray(out, mode='HSV').convert('RGB')),
-        #     origin = 'lower'
-        # )
-        # plt.show(block = True)
-
-        # We want spatial averaging for texture
+        # Do special averaging to get sensor pixels
         out = downscale_chem(
-            out,
+            self._landscape_glimpse_buf,
             self.sensor_pixel_dimensions[1],
             self.sensor_pixel_dimensions[0]
         )
 
-        r0 = out.shape[0] // 2
-        r1 = out.shape[1] // 2
-        out = out[r0 - int(math.floor(self.sensor_dimensions[1] / 2)) : r0 + int(math.ceil(self.sensor_dimensions[1] / 2)),
-                  r1 - int(math.floor(self.sensor_dimensions[0] / 2)) : r1 + int(math.ceil(self.sensor_dimensions[0] / 2))]
-
+        # Round values to number of levels
         roundbuf = self._roundbuf
         nlevels = None
         for component in range(3):
@@ -203,6 +191,7 @@ class NavBySceneFamiliarity(object):
             out[:, :, component] = roundbuf
 
         # Zero out the middle n pixels
+        r1 = out.shape[1] // 2
         out[:, r1 - self.mask_middle_n:r1 + self.mask_middle_n] = 0
 
         return out
@@ -529,7 +518,7 @@ class NavBySceneFamiliarity(object):
                 self.sensor_pixel_dimensions[0],
                 self.sensor_pixel_dimensions[1]
             ),
-            ha = 'left', va='center', fontsize = 10, zorder = 2,
+            ha = 'left', va = 'center', fontsize = 10, zorder = 2,
             transform = status_ax.transAxes, backgroundcolor = "w"
         )
         status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0, 0.0, 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")

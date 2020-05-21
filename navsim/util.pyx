@@ -4,7 +4,7 @@ import numpy as np
 cimport numpy as np
 cimport cython
 
-from libc.math cimport fabs, round
+from libc.math cimport fabs, round, sin, cos, M_PI
 
 
 def sads_familiarity(chem_weight = 0.0):
@@ -132,6 +132,40 @@ def downscale_chem(const np.uint8_t [:, :, :] image,
             out[block_i, block_j, 1] = <np.uint8_t>avg_sat
 
     return out_np
+
+
+cpdef void fill_sensor_from(
+          np.uint8_t [:, :, :] sensor,
+          double xpos, double ypos,
+          double angle,
+          np.uint8_t [:, :, :] landscape
+    ):
+    cdef double rot_ang = -(0.5*M_PI - angle)
+    cdef double cos_rot_ang = cos(rot_ang)
+    cdef double sin_rot_ang = sin(rot_ang)
+
+    cdef Py_ssize_t i, j
+    cdef Py_ssize_t sensor_dim0 = sensor.shape[0]
+    cdef Py_ssize_t sensor_dim1 = sensor.shape[1]
+    cdef double sensor_half_width = 0.5 * sensor_dim1
+    cdef double sensor_half_height = 0.5 * sensor_dim0
+
+    cdef double pix_vec[2] # in xy
+    cdef double pix_vec_rot[2] # in xy
+
+    for i in range(sensor_dim0):
+        for j in range(sensor_dim1):
+
+            pix_vec[0] = j - sensor_half_width
+            pix_vec[1] = i - sensor_half_height
+            pix_vec_rot[0] = pix_vec[0]*cos_rot_ang - pix_vec[1]*sin_rot_ang
+            pix_vec_rot[1] = pix_vec[0]*sin_rot_ang + pix_vec[1]*cos_rot_ang
+
+            # round for nearest neighbor
+            sensor[i, j, :] = landscape[
+                <Py_ssize_t>round(pix_vec_rot[1] + ypos), # y first
+                <Py_ssize_t>round(pix_vec_rot[0] + xpos) # then x
+            ]
 
 
 @cython.boundscheck(False)
