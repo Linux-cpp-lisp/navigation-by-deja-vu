@@ -81,7 +81,6 @@ class NavBySceneFamiliarity(object):
         self.position = (0., 0.)
         self.angle = 0.
 
-        self.familiar_scenes = None
         self.n_test_angles = n_test_angles
         self.mask_middle_n = mask_middle_n
         self.threshold_factor = threshold_factor
@@ -112,7 +111,7 @@ class NavBySceneFamiliarity(object):
         self.step_familiarity = np.inf
         self.max_distance_to_training_path = max_distance_to_training_path
 
-        self.training_path = None
+        self.clear_training()
 
         self.familiarity_model = familiarity_model
 
@@ -142,6 +141,14 @@ class NavBySceneFamiliarity(object):
 
         #Train:
         self._familiarity_func = self.familiarity_model(self.familiar_scenes)
+
+
+    def clear_training(self):
+        self.training_path = None
+        self.familiar_scenes = None
+        self._familiarity_func = None
+        self.scene_familiarity = None
+        self.training_path_length = None
 
 
     def get_sensor_mat(self, position, angle):
@@ -240,6 +247,7 @@ class NavBySceneFamiliarity(object):
                 return i / len(self.training_path)
         return 0.
 
+
     def n_captures(self, n_consecutive_scenes = 0.05):
         """
         Return the number of "captures": times the agent got onto the training
@@ -255,6 +263,7 @@ class NavBySceneFamiliarity(object):
             if (not self._coverage_array[i]) and np.all(self._coverage_array[i+1:i+1+n_consecutive_scenes]):
                 out += 1
         return out
+
 
     def update_error(self):
         self.navigated_for_frames += 1
@@ -335,10 +344,12 @@ class NavBySceneFamiliarity(object):
             if np.linalg.norm(self.training_path[-1] - self.position) <= self.threshold_factor * self.step_size:
                 raise ReachedEndOfTrainingPathException()
 
+
     @property
     def landscape_real_pixel_size(self):
         s = np.sqrt(self.sensor_real_area[0] / np.product(self.sensor_dimensions * self.sensor_pixel_dimensions))
         return s
+
 
     # ----- Plotting Code
     def _plot_landscape(self, main_ax, training_path = True, show_scalebar = 'lower right'):
