@@ -40,13 +40,42 @@ defaults = {
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
 }
 
+# result_variables = {
+#     'path_coverage' : np.float,
+#     'rmsd_error' : np.float,
+#     'completed_frames' : np.int,
+#     'stop_status' : np.int,
+#     'n_captures' : np.int,
+#     'percent_forgiving' : np.float
+# }
+
+float_formatstr = "{:6f}"
 result_variables = {
-    'path_coverage' : np.float,
-    'rmsd_error' : np.float,
-    'completed_frames' : np.int,
-    'stop_status' : np.int,
-    'n_captures' : np.int,
-    'percent_forgiving' : np.float
+    'path_coverage' : float_formatstr,
+    'rmsd_error' : float_formatstr,
+    'completed_frames' : "{:d}",
+    'stop_status' : "{:d}",
+    'n_captures' : "{:d}",
+    'percent_forgiving' : float_formatstr
+}
+
+variable_formats = {
+    'landscape_class' : "{}",
+    'landscape_name' : "{}",
+    'training_path_curve' : "{:4f}",
+    'landscape_noise_factor' : "{:4f}",
+    'n_chemicals' : "{:d}",
+    'min_chem_grain_diameter' : "{:4f}",
+    'chem_weight' : "{:4f}",
+    'sensor_dimensions' : "{0[0]:d};{0[1]:d};{0[2]:d};{0[3]:d}",
+    'mask_middle_n' : "{:d}",
+    'n_sensor_levels' : "{:d}",
+    'step_size' : "{:4f}",
+    'saccade_degrees' : "{:4f}",
+    'n_test_angles' : "{:d}",
+    'start_offset' : "{0[0]:4f};{0[1]:4f}",
+    'landscape_flip_vertical' : '{:d}', # Bools as ints
+    'landscape_flip_horizontal' : '{:d}'
 }
 
 # ---------------------- RUN STUFF ----------------------------------------
@@ -248,6 +277,7 @@ if __name__ == '__main__':
             'landscape_class' : ['sand2020'],
             'landscape_name' : ['landscape-0.png'],
             'training_path_curve' : [0.5],
+            'landscape_flip_vertical' : [False, True],
             # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'n_chemicals' : [2],
             'min_chem_grain_diameter' : np.array([0.25]) * PX_PER_MM,
@@ -270,7 +300,7 @@ if __name__ == '__main__':
 
             # == Other ==
             # Fraction of sensor width and an angle offset
-            'start_offset' : [(0., 0.),], # Units are (frac, deg)
+            'start_offset' : [(-0.1, 0.), (0., 0.)], # Units are (frac, deg)
         }
     elif mode.startswith('sand'):
         # --- REAL VARS ---
@@ -324,6 +354,8 @@ if __name__ == '__main__':
     n_variables = len(variable_dict)
     variables = list(variable_dict.keys())
     variables.sort() # get a consistant variable ordering. Just in case we're running on old python
+    result_vars_list = list(result_variables.keys())
+    result_vars_list.sort() # get a consistant variable ordering. Just in case we're running on old python
     trials = list(itertools.product(*[variable_dict[k] for k in variables]))
     n_trials_by_variable = [len(variable_dict[k]) for k in variables]
     n_trials = len(trials)
@@ -334,26 +366,39 @@ if __name__ == '__main__':
 
     assert n_trials >= comm.size, "n_trials %i < comm size %i" % (n_trials, comm.size)
 
+    outdir = None
     if comm.rank == 0:
         logger.info("Starting...")
         logger.info("Running a total of %i trials over %i processes" % (n_trials, comm.size))
+        # == Making output dir
+        run_number = 0
+        datestring = time.strftime("%Y-%m-%d")
+        while True:
+            outdir = "output-%s-%s-run%i" % (mode, datestring, run_number)
+            if os.path.exists(outdir):
+                run_number += 1
+            else:
+                break
+        os.makedirs(outdir)
         # Log start time
         start_time = time.time()
 
-    # Distribute Trials
+    outdir = comm.bcast(outdir, root = 0)
+
+    # 1 indicates line buffering: https://stackoverflow.com/questions/3167494/how-often-does-python-flush-to-a-file
+    outfile = open(outdir + ("/task-%i.csv" % comm.rank), 'w', buffering = 1)
+
+    # == Write headers
+    print(
+        ", ".join(variables + result_vars_list),
+        file = outfile
+    )
+
+    # == Distribute Trials
     part_trials = np.array_split(trials, comm.size)
     my_trials = part_trials[comm.rank]
 
     logger.debug("Task %i has %i trials" % (comm.rank, len(my_trials)))
-
-    # Set up result arrays
-    my_variable_values = [np.empty(
-                            shape = (len(my_trials),) + variable_dict[v].shape[1:],
-                            dtype = variable_dict[v].dtype
-                          ) for v in variables]
-    my_results = {}
-    for resvar in result_variables:
-        my_results[resvar] = np.empty(shape = len(my_trials), dtype = result_variables[resvar])
 
     for i, trial_vals in enumerate(my_trials):
         # - Set up dict for convinience
@@ -364,33 +409,15 @@ if __name__ == '__main__':
 
         nsf = make_nsf(trial, landscape_dir)
         trial_result = run_experiment(nsf)
+        outstr = ", ".join([variable_formats[v].format(trial[v]) for v in variables])
+        outstr += ", "
+        outstr += ", ".join([result_variables[v].format(trial_result[v]) for v in result_vars_list])
+        print(outstr, file = outfile)
 
-        for vi, val in enumerate(trial_vals):
-            my_variable_values[vi][i] = val
-
-        for resvar in result_variables.keys():
-            my_results[resvar][i] = trial_result[resvar]
-
-
-    gathered = comm.gather((my_variable_values, my_results), root = 0)
+    outfile.close()
+    comm.barrier()
 
     if comm.rank == 0:
-        all_results = dict([(resvar, np.concatenate(tuple(e[1][resvar] for e in gathered))) for resvar in result_variables.keys()])
-        all_vars = [np.concatenate(tuple(e[0][i] for e in gathered)) for i in range(len(variables))]
-
-        for resarr in all_results.values():
-            assert len(all_vars[0]) == len(resarr)
-
-        to_save = dict(zip(variables, all_vars))
-        to_save.update(all_results)
-
-        to_save['variable_dict'] = variable_dict
-
-        datestring = time.strftime("%Y-%m-%d")
-        np.savez("output-%s-%s.npz" % (mode, datestring), **to_save)
-        # Also save the same data in MATLAB format for convinience
-        # scipy.io.savemat("output-%s-%s.mat" % (mode, datestring), to_save)
-
-        logger.info("Done! Finished %i trials" % len(all_vars[0]))
+        logger.info("Done! Finished %i trials" % len(trials))
         logger.info("It took about %i minutes" % int((time.time() - start_time) / 60.))
-        logger.info("Each trial added about %.2fs of wall-clock time" % ((time.time() - start_time) / len(all_vars[0])))
+        logger.info("Each trial added about %.2fs of wall-clock time" % ((time.time() - start_time) / len(trials)))
