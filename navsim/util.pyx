@@ -136,9 +136,9 @@ def downscale_chem(const np.uint8_t [:, :, :] image,
 
 cpdef void fill_sensor_from(
           np.uint8_t [:, :, :] sensor,
-          double xpos, double ypos,
-          double angle,
-          np.uint8_t [:, :, :] landscape
+          const double xpos, const double ypos,
+          const double angle,
+          const np.uint8_t [:, :, :] landscape
     ):
     cdef double rot_ang = -(0.5*M_PI - angle)
     cdef double cos_rot_ang = cos(rot_ang)
