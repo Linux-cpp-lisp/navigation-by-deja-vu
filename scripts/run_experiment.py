@@ -40,15 +40,6 @@ defaults = {
     'sensor_real_area' : (14., "$\mathrm{mm}$"),
 }
 
-# result_variables = {
-#     'path_coverage' : np.float,
-#     'rmsd_error' : np.float,
-#     'completed_frames' : np.int,
-#     'stop_status' : np.int,
-#     'n_captures' : np.int,
-#     'percent_forgiving' : np.float
-# }
-
 float_formatstr = "{:6f}"
 result_variables = {
     'path_coverage' : float_formatstr,
@@ -317,10 +308,10 @@ if __name__ == '__main__':
             # == Environmental properties ==
             'landscape_class' : ['sand2020'],
             'landscape_name' : landscape_names,
-            'training_path_curve' : [0.0, 0.5, 1.0],
+            'training_path_curve' : [0.1, 0.2],
             # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
             'n_chemicals' : [0, 1, 2, 4],
-            'min_chem_grain_diameter' : np.array([0.25]) * PX_PER_MM,
+            'min_chem_grain_diameter' : np.array([0.5, 1.0, 2.0]) * PX_PER_MM,
             'chem_weight' : [0., 0.25, 0.5, 0.75, 1.0],
             # == Agent properties ==
             # One pectine width: 20x5 gives about 7.35mm wide
@@ -339,11 +330,11 @@ if __name__ == '__main__':
             # Step size/glimpse frequency properties
             'step_size' : [1.3 * PX_PER_MM], # In milimeters
             'saccade_degrees' : [30., 40., 50.], # Degrees, from data (35+-15)
-            'n_test_angles' : [15, 31], # All odd so that 0 included
+            'n_test_angles' : [25], # All odd so that 0 included
 
             # == Other ==
             # Fraction of sensor width and an angle offset
-            'start_offset' : [(0., 0.), (0.1, -5.), (-0.1, 7.), (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
+            'start_offset' : [(0., 0.), (0.1, -7.), (-0.1, 7.)] #, (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
         }
     else:
         raise ValueError("Invalid mode '%s'" % mode)
