@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import itertools
 import math
 import shutil
+import json
 from tqdm import tqdm
 
 from PIL import Image
@@ -32,7 +33,7 @@ LANDSCAPE_THRESHOLD = 200
 # ---- TEST VARS ----
 import os, sys
 # Run as:
-# run_experiment.py [mode] landscape_dir/
+# run_experiment.py path/to/trial_file.json landscape_dir/
 
 defaults = {
     'n_test_angles' : 10,
@@ -259,87 +260,24 @@ def run_experiment(nsf,
 
 
 if __name__ == '__main__':
-    mode = sys.argv[1]
+    trial_file = sys.argv[1]
+    mode = os.path.basename(trial_file)
+    if mode.endswith('.json'):
+        mode = mode[:-5] # Drop extension
     landscape_dir = os.path.abspath(sys.argv[2])
 
-    if mode == 'test':
-        variable_dict = {
-            # == Environmental properties ==
-            'landscape_class' : ['sand2020'],
-            'landscape_name' : ['landscape-0.png'],
-            'training_path_curve' : [0.5],
-            'landscape_flip_vertical' : [False, True],
-            # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
-            'n_chemicals' : [2],
-            'min_chem_grain_diameter' : np.array([0.25]) * PX_PER_MM,
-            'chem_weight' : [0., 0.5],
-            # == Agent properties ==
-            # One pectine width: 20x5 gives about 7.35mm wide
-            # and 1x12 gives about 0.88mm depth.
-            'sensor_dimensions' : [(44, 1, 6, 12)],
-            'mask_middle_n' : [2],
-            # These are chosen to hold total sensor area constant
-            # want at least some blurring to avoid weird effects at the highest resultion,
-            # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
+    # Load trial variables
+    with open(trial_file, 'r') as f:
+        variable_dict = json.load(f)
+    # Remove comments
+    for k in list(variable_dict.keys()):
+        if k.startswith("_comment"):
+            del variable_dict[k]
+        elif not isinstance(variable_dict[k], list):
+            raise ValueError("Variable %s must have a list of values!" % k)
 
-            'n_sensor_levels' : [4,],
-
-            # Step size/glimpse frequency properties
-            'step_size' : [1. * PX_PER_MM], # In milimeters
-            'saccade_degrees' : [35.], # Degrees, from data (35+-15)
-            'n_test_angles' : [15], # All odd so that 0 included
-
-            # == Other ==
-            # Fraction of sensor width and an angle offset
-            'start_offset' : [(-0.1, 0.), (0., 0.)], # Units are (frac, deg)
-        }
-    elif mode.startswith('sand'):
-        # --- REAL VARS ---
-        # landscape_name
-        # os.listdir(landscape_dir + '/' + 'sand2020')
-        if mode == 'sand0':
-            landscape_names = ['landscape-0.png']
-        elif mode == 'sand1':
-            landscape_names = ['landscape-1.png']
-        else:
-            raise ValueError("Invalid Mode!")
-
-        variable_dict = {
-            # == Environmental properties ==
-            'landscape_class' : ['sand2020'],
-            'landscape_name' : landscape_names,
-            'training_path_curve' : [0.1, 0.2],
-            # 'landscape_noise_factor' : np.repeat([0.0, 0.25, 0.5, 0.75, 1.0], 3), # Run 3 trials at each noise factor, since noise is generated randomly each time.
-            'n_chemicals' : [0, 1, 2, 4],
-            'min_chem_grain_diameter' : np.array([0.5, 1.0, 2.0]) * PX_PER_MM,
-            'chem_weight' : [0., 0.25, 0.5, 0.75, 1.0],
-            # == Agent properties ==
-            # One pectine width: 20x5 gives about 7.35mm wide
-            # and 1x12 gives about 0.88mm depth.
-            'sensor_dimensions' : [(44, 1, 6, 12),
-                                   (44, 2, 6, 6),
-                                   (44, 4, 6, 3),
-                                   (44, 6, 6, 2)],
-            'mask_middle_n' : [2],
-            # These are chosen to hold total sensor area constant
-            # want at least some blurring to avoid weird effects at the highest resultion,
-            # so our sensor area (in px) will be 80x8 (corresponding to 14mm^2 real world)
-
-            'n_sensor_levels' : [2, 4, 8, 16],
-
-            # Step size/glimpse frequency properties
-            'step_size' : [1.3 * PX_PER_MM], # In milimeters
-            'saccade_degrees' : [30., 40., 50.], # Degrees, from data (35+-15)
-            'n_test_angles' : [25], # All odd so that 0 included
-
-            # == Other ==
-            # Fraction of sensor width and an angle offset
-            'start_offset' : [(0., 0.), (0.1, -7.), (-0.1, 7.)] #, (-0.25, 15), (0.5, -30)], # Units are (frac, deg)
-        }
-    else:
-        raise ValueError("Invalid mode '%s'" % mode)
-
-    for k in variable_dict:
+    # make ndarrays
+    for k in variable_dict.keys():
         variable_dict[k] = np.asarray(variable_dict[k])
 
     n_variables = len(variable_dict)
