@@ -10,12 +10,14 @@ from mpl_toolkits.axes_grid1 import inset_locator
 import matplotlib.font_manager as fm
 import matplotlib.colors
 
+from PIL import Image
 import skimage
+import skimage.transform
 import itertools
 import math
 import warnings
 
-from navsim.util import sads
+from navsim.util import sads_familiarity, downscale_chem, fill_sensor_from
 
 class StopNavigationException(Exception):
     def get_reason(self):
@@ -51,16 +53,6 @@ LANDSCAPE_CMAP = 'YlGn'
 NAVCOLOR = 'maroon' #'darkorchid'
 TRAINCOLOR = 'goldenrod'
 
-def sads_familiarity(scenes):
-    maxfam = scenes[0].shape[0] *  scenes[0].shape[1]
-    def func(scene, fambuf):
-        for f_index in range(len(scenes)):
-            fambuf[f_index] = maxfam - sads(scene, scenes[f_index])
-
-    func.max_familiarity = maxfam
-
-    return func
-
 
 class NavBySceneFamiliarity(object):
     """
@@ -77,18 +69,20 @@ class NavBySceneFamiliarity(object):
                  sensor_pixel_dimensions = [1, 1],
                  max_distance_to_training_path = np.inf,
                  n_sensor_levels = 5,
+                 mask_middle_n = 0,
                  threshold_factor = 2.,
                  coverage_threshold_factor = 0.8,
                  saccade_degrees = 180.,
                  sensor_real_area = None,
-                 familiarity_model = sads_familiarity):
+                 familiarity_model = sads_familiarity()):
         self.landscape = landscape
+        self._landscape_rgb = np.asarray(Image.fromarray(self.landscape, mode='HSV').convert('RGB'))
 
         self.position = (0., 0.)
         self.angle = 0.
 
-        self.familiar_scenes = None
         self.n_test_angles = n_test_angles
+        self.mask_middle_n = mask_middle_n
         self.threshold_factor = threshold_factor
         self.coverage_threshold_factor = coverage_threshold_factor
 
@@ -100,17 +94,26 @@ class NavBySceneFamiliarity(object):
 
         self.sensor_dimensions = np.asarray(sensor_dimensions)
         self.sensor_pixel_dimensions = np.asarray(sensor_pixel_dimensions)
-        assert np.all((self.sensor_dimensions * self.sensor_pixel_dimensions) % 2 == 0)
+        sensor_landscape_pix_dim = (self.sensor_dimensions * self.sensor_pixel_dimensions)
+        assert np.all(sensor_landscape_pix_dim % 2 == 0)
+        self._sensor_r = np.max(self.sensor_dimensions * self.sensor_pixel_dimensions / 2)
+        self._roundbuf = np.empty(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]), dtype = np.float32)
+        self._landscape_glimpse_buf = np.empty(shape = (sensor_landscape_pix_dim[1], sensor_landscape_pix_dim[0], 3), dtype = np.uint8)
 
         self.n_sensor_pixels = np.product(self.sensor_dimensions)
-        assert n_sensor_levels >= 2
+
+        if not isinstance(n_sensor_levels, tuple):
+            n_sensor_levels = (256, 256, n_sensor_levels)
+        assert len(n_sensor_levels) == 3
+        assert all(2 <= l <= 256  for l in n_sensor_levels)
         self.n_sensor_levels = n_sensor_levels
+
         self.step_size = step_size
         self.angle_familiarity = np.empty(shape = n_test_angles)
         self.step_familiarity = np.inf
         self.max_distance_to_training_path = max_distance_to_training_path
 
-        self.training_path = None
+        self.clear_training()
 
         self.familiarity_model = familiarity_model
 
@@ -121,9 +124,10 @@ class NavBySceneFamiliarity(object):
         if self.training_path is not None:
             raise ValueError("Tried to train NavBySceneFamiliarity more than once.")
 
-        self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[1], self.sensor_dimensions[0]), dtype = self.landscape.dtype)
+        self.familiar_scenes = np.empty(shape = (len(points), self.sensor_dimensions[1], self.sensor_dimensions[0], self.landscape.shape[2]), dtype = self.landscape.dtype)
 
         angles = points[1:] - points[0:-1]
+        self.training_path_length = np.sum(np.linalg.norm(angles, axis = 1))
         angles = np.arctan2(angles[:,1], angles[:, 0])
 
         i = 0
@@ -132,7 +136,7 @@ class NavBySceneFamiliarity(object):
             i += 1
         self.familiar_scenes[i] = self.get_sensor_mat(points[-1], ang)
 
-        self.scene_familiarity = np.zeros(shape = len(points))
+        self.scene_familiarity = np.zeros(shape = len(points), dtype = np.float)
         self.training_path = points
 
         self.reset_error()
@@ -141,42 +145,55 @@ class NavBySceneFamiliarity(object):
         self._familiarity_func = self.familiarity_model(self.familiar_scenes)
 
 
-    def _make_sensor_mask(self):
-        circ_mask = np.ones(shape = (self.sensor_size, self.sensor_size), dtype = np.bool)
-        for i, j in itertools.product(range(self.sensor_size), repeat=2):
-            if np.ceil(np.sqrt((i - (self.sensor_size - 1) / 2) **2 + (j - (self.sensor_size - 1) / 2)**2)) <= self.sensor_radius:
-                circ_mask[i, j] = 0
-
-        return circ_mask
+    def clear_training(self):
+        self.training_path = None
+        self.familiar_scenes = None
+        self._familiarity_func = None
+        self.scene_familiarity = None
+        self.training_path_length = None
 
 
     def get_sensor_mat(self, position, angle):
-        position = np.round(position).astype(np.int)
-        #r = self.sensor_radius * self.pixel_scale_factor
-        dists = self.sensor_dimensions * self.sensor_pixel_dimensions // 2
-        r = np.max(dists)
+        #position = np.round(position).astype(np.int)
+        r = self._sensor_r
+        ldims = self.landscape.shape
 
-        if np.any(np.logical_or(position < r, position[::-1] > np.subtract(self.landscape.shape, r))):
+        if (position[0] <= r) or (position[1] <= r) or \
+           (position[0] >= ldims[1] - r) or (position[1] >= ldims[0] - r):
             raise OutOfLandscapeBoundsException()
 
-        sensor_mat = np.copy(self.landscape[position[1] - r:position[1] + r,
-                                            position[0] - r:position[0] + r])
+        # Fill a full-res sensor
+        fill_sensor_from(
+            self._landscape_glimpse_buf,
+            position[0], position[1],
+            angle, # already in radians
+            self.landscape
+        )
 
-        out = skimage.transform.rotate(sensor_mat, 270. + 180. * angle / np.pi)
-        out = skimage.transform.downscale_local_mean(out, (self.sensor_pixel_dimensions[1], self.sensor_pixel_dimensions[0]))
+        # Do special averaging to get sensor pixels
+        out = downscale_chem(
+            self._landscape_glimpse_buf,
+            self.sensor_pixel_dimensions[1],
+            self.sensor_pixel_dimensions[0]
+        )
 
-        r0 = out.shape[0] // 2
+        # Round values to number of levels
+        roundbuf = self._roundbuf
+        nlevels = None
+        for component in range(3):
+            roundbuf[:] = out[:, :, component]
+            nlevels = self.n_sensor_levels[component]
+            roundbuf /= 255
+            roundbuf *= (nlevels - 1)
+            np.rint(roundbuf, out = roundbuf)
+            roundbuf /= (nlevels - 1)
+            roundbuf *= 255
+            out[:, :, component] = roundbuf
+
+        # Zero out the middle n pixels
         r1 = out.shape[1] // 2
-        out = out[r0 - int(np.floor(self.sensor_dimensions[1] / 2)) : r0 + int(np.ceil(self.sensor_dimensions[1] / 2)),
-                  r1 - int(np.floor(self.sensor_dimensions[0] / 2)) : r1 + int(np.ceil(self.sensor_dimensions[0] / 2))]
+        out[:, r1 - self.mask_middle_n:r1 + self.mask_middle_n] = 0
 
-        out *= (self.n_sensor_levels - 1)
-        np.rint(out, out = out)
-        out /= (self.n_sensor_levels - 1)
-
-        #out[self._mask] = 0.
-
-        del sensor_mat
         return out
 
 
@@ -219,6 +236,7 @@ class NavBySceneFamiliarity(object):
                 return i / len(self.training_path)
         return 0.
 
+
     def n_captures(self, n_consecutive_scenes = 0.05):
         """
         Return the number of "captures": times the agent got onto the training
@@ -234,6 +252,7 @@ class NavBySceneFamiliarity(object):
             if (not self._coverage_array[i]) and np.all(self._coverage_array[i+1:i+1+n_consecutive_scenes]):
                 out += 1
         return out
+
 
     def update_error(self):
         self.navigated_for_frames += 1
@@ -314,15 +333,22 @@ class NavBySceneFamiliarity(object):
             if np.linalg.norm(self.training_path[-1] - self.position) <= self.threshold_factor * self.step_size:
                 raise ReachedEndOfTrainingPathException()
 
+
     @property
     def landscape_real_pixel_size(self):
         s = np.sqrt(self.sensor_real_area[0] / np.product(self.sensor_dimensions * self.sensor_pixel_dimensions))
         return s
 
+
     # ----- Plotting Code
     def _plot_landscape(self, main_ax, training_path = True, show_scalebar = 'lower right'):
         # -- Plot basic elements
-        main_ax.imshow(self.landscape, cmap = LANDSCAPE_CMAP, vmax = 1.0, origin = 'lower', alpha = 0.5)
+        main_ax.imshow(
+            self._landscape_rgb,
+            origin = 'lower',
+            alpha = 0.5
+        )
+
         if training_path:
             main_ax.plot(self.training_path[:,0], self.training_path[:,1],
                          color = TRAINCOLOR,
@@ -454,7 +480,7 @@ class NavBySceneFamiliarity(object):
                 zorder = agentz - 4
             )
 
-        return (fig, main_ax), stoped_for
+        return (fig, main_ax), stoped_for, np.vstack((xpos, ypos)).T
 
 
     def animate(self, frames, interval = 100):
@@ -484,14 +510,28 @@ class NavBySceneFamiliarity(object):
             status_ax.spines[spline].set_visible(False)
 
         status_string = "%s. RMSD error: %0.2f; Coverage: %i%% (forgiving: %i%%);"
-        info_txt = status_ax.text(0.0, 0.0, "Step size: %0.1f; num. test angles: %i; sensor matrix: %i levels, %ix%i @ %ix%i px/px" % (self.step_size, self.n_test_angles, self.n_sensor_levels, self.sensor_dimensions[0], self.sensor_dimensions[1], self.sensor_pixel_dimensions[0], self.sensor_pixel_dimensions[1]), ha = 'left', va='center', fontsize = 10, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
+        info_txt = status_ax.text(
+            0.0, 0.0,
+            "Step size: %0.1f; num. test angles: %i; sensor matrix: %s levels (H/S/V), %ix%i @ %ix%i px/px" % (
+                self.step_size, self.n_test_angles, self.n_sensor_levels,
+                self.sensor_dimensions[0], self.sensor_dimensions[1],
+                self.sensor_pixel_dimensions[0],
+                self.sensor_pixel_dimensions[1]
+            ),
+            ha = 'left', va = 'center', fontsize = 10, zorder = 2,
+            transform = status_ax.transAxes, backgroundcolor = "w"
+        )
         status_txt = status_ax.text(0.0, 0.8, status_string % ("Navigating", 0.0, 0.0, 0.0), ha = 'left', va='center', fontsize = 10, animated = True, zorder = 2, transform = status_ax.transAxes, backgroundcolor = "w")
 
         sensor_ax.set_title("Sensor Matrix")
-        init_sens_mat = np.zeros(shape = (self.sensor_dimensions[1], self.sensor_dimensions[0]))
-        init_sens_mat[0, 0] = 1.
-        sensor_im = sensor_ax.imshow(init_sens_mat, cmap = LANDSCAPE_CMAP, vmax = 1.0, alpha = 0.7,
-                                     origin = 'lower', aspect = 'auto', animated = True)
+        init_sens_mat = self.get_sensor_mat(self.position, self.angle)
+        init_sens_mat = np.asarray(Image.fromarray(init_sens_mat, mode='HSV').convert('RGB'))
+        sensor_im = sensor_ax.imshow(
+            init_sens_mat,
+            origin = 'lower',
+            aspect = 'auto',
+            animated = True
+        )
         sensor_ax.xaxis.set_major_locator(plt.NullLocator())
         sensor_ax.yaxis.set_major_locator(plt.NullLocator())
 
@@ -528,11 +568,10 @@ class NavBySceneFamiliarity(object):
         angle_min = angle_ax.axvline(0, color = NAVCOLOR, animated = True, zorder = 1, alpha = 0.6, linewidth = 1)
         angle_ln_x = 180. * self.angle_offsets / np.pi
         angle_ln, = angle_ax.plot(angle_ln_x, self.angle_familiarity, color = 'k', animated = True)
-        angle_ax.set_ylim((0.3 * max_fam, max_fam))
         angle_ax.xaxis.set_major_formatter(StrMethodFormatter(u"{x:.0f}°"))
         angle_ax.yaxis.set_major_locator(plt.NullLocator())
 
-        xpos, ypos = [self.position[0]], [self.position[1]]
+        xpos, ypos = [], []
         path_ln, = main_ax.plot(xpos, ypos, color = NAVCOLOR, marker = 'o', markersize = 5, linewidth = 2, animated = True)
 
         sens_rect_dims = (self.sensor_dimensions * self.sensor_pixel_dimensions)[::-1]
@@ -548,35 +587,56 @@ class NavBySceneFamiliarity(object):
 
         main_ax.add_patch(sensor_rect)
 
-        #anim_ref = [1]
-
         self._anim_stop_cond = False
 
         def upd(frame):
             artist_list = (path_ln, scene_ln, scene_inset_ax, scene_inset_ln, scene_min, scene_min_box, angle_ln, angle_min, sensor_rect, sensor_im, status_txt)
 
             if not self._anim_stop_cond:
+                position = self.position
+                angle = self.angle
+                if frame == 0:
+                    navigation_error = 0
+                    percent_recapitulated = 0
+                    percent_recapitulated_forgiving = 0
+                else:
+                    navigation_error = self.navigation_error
+                    percent_recapitulated = self.percent_recapitulated
+                    percent_recapitulated_forgiving = self.percent_recapitulated_forgiving()
                 # Step forward
                 try:
+                    new_sens_mat = self.get_sensor_mat(position, angle)
                     self.step_forward()
-                    new_sens_mat = self.get_sensor_mat(self.position, self.angle)
                 except StopNavigationException as e:
                     self._anim_stop_cond = True
                     self.stopped_with_exception = e
-                    status_txt.set_text(status_string % ("Stopped: %s" % e.get_reason(), self.navigation_error, 100 * self.percent_recapitulated, 100 * self.percent_recapitulated_forgiving()))
+                    status_txt.set_text(status_string % (
+                            "Stopped: %s" % e.get_reason(),
+                            navigation_error,
+                            100 * percent_recapitulated,
+                            100 * percent_recapitulated_forgiving
+                        )
+                    )
                     status_txt.set_color("red")
 
                     #anim_ref[0].event_source.stop()
                     return artist_list
 
-                xpos.append(self.position[0]); ypos.append(self.position[1])
+                xpos.append(position[0]); ypos.append(position[1])
                 path_ln.set_data(xpos, ypos)
 
-                status_txt.set_text(status_string % ("Navigating - position (%4.1f, %4.1f) heading %.0f°" % (self.position[0], self.position[1], 180. * self.angle / np.pi), self.navigation_error, 100*  self.percent_recapitulated, 100 * self.percent_recapitulated_forgiving()))
+                status_txt.set_text(status_string % (
+                        "Navigating - position (%4.1f, %4.1f) heading %.0f°" % (
+                            position[0], position[1], 180. * angle / np.pi
+                        ), navigation_error,
+                        100 * percent_recapitulated,
+                        100 * percent_recapitulated_forgiving
+                    )
+                )
 
-                sensor_rect.set_xy((self.position[0] - sens_rect_dims[0] * np.cos(self.angle) + sens_rect_dims[1] * np.sin(self.angle),
-                                    self.position[1] - sens_rect_dims[0] * np.sin(self.angle) - sens_rect_dims[1] * np.cos(self.angle)))
-                sensor_rect.angle = np.rad2deg(self.angle)
+                sensor_rect.set_xy((position[0] - sens_rect_dims[0] * np.cos(angle) + sens_rect_dims[1] * np.sin(angle),
+                                    position[1] - sens_rect_dims[0] * np.sin(angle) - sens_rect_dims[1] * np.cos(angle)))
+                sensor_rect.angle = np.rad2deg(angle)
 
                 scene_ln.set_ydata(self.scene_familiarity)
                 s_amin = np.argmax(self.scene_familiarity)
@@ -590,9 +650,11 @@ class NavBySceneFamiliarity(object):
                 scene_inset_ln.set_ydata(scene_inset_dat)
 
                 angle_ln.set_ydata(self.angle_familiarity)
+                angle_ax.set_ylim((np.min(self.angle_familiarity), np.max(self.angle_familiarity)))
                 a_amin = 180. * self.angle_offsets[np.argmax(self.angle_familiarity)] / np.pi
                 angle_min.set_xdata([a_amin, a_amin])
 
+                new_sens_mat = np.asarray(Image.fromarray(new_sens_mat, mode='HSV').convert('RGB'))
                 sensor_im.set_array(new_sens_mat)
 
             return artist_list
@@ -600,7 +662,6 @@ class NavBySceneFamiliarity(object):
         anim = FuncAnimation(fig, upd,
                              frames = frames, interval = interval, #itertools.repeat(1),
                              blit = True, repeat = False)
-        #anim_ref[0] = anim
 
         # Suppress the warning about unsupported axes for tight layout
         # See https://stackoverflow.com/questions/22227165/catch-matplotlib-warning#34622563
