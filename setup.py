@@ -3,6 +3,7 @@ from Cython.Build import cythonize
 import numpy as np
 
 setup(name = 'navsim',
+      version = '1.0.0',
       author = 'Alby Musaelian',
       packages = ['navsim'],
       ext_modules = cythonize([
