@@ -55,11 +55,6 @@ TRAINCOLOR = 'goldenrod'
 
 
 class NavBySceneFamiliarity(object):
-    """
-    Args:
-        sensor_real_area (tuple: (float, string)): First number is an area,
-            second is the unit to display while plotting (i.e. a length unit).
-    """
 
     def __init__(self,
                  landscape,
@@ -73,7 +68,7 @@ class NavBySceneFamiliarity(object):
                  threshold_factor = 2.,
                  coverage_threshold_factor = 0.8,
                  saccade_degrees = 180.,
-                 sensor_real_area = None,
+                 sensor_px_per_mm = None,
                  familiarity_model = sads_familiarity()):
         self.landscape = landscape
         self._landscape_rgb = np.asarray(Image.fromarray(self.landscape, mode='HSV').convert('RGB'))
@@ -86,7 +81,7 @@ class NavBySceneFamiliarity(object):
         self.threshold_factor = threshold_factor
         self.coverage_threshold_factor = coverage_threshold_factor
 
-        self.sensor_real_area = sensor_real_area
+        self.sensor_px_per_mm = sensor_px_per_mm
 
         self.saccade_degrees = saccade_degrees
         sd2 = saccade_degrees / 2
@@ -334,12 +329,6 @@ class NavBySceneFamiliarity(object):
                 raise ReachedEndOfTrainingPathException()
 
 
-    @property
-    def landscape_real_pixel_size(self):
-        s = np.sqrt(self.sensor_real_area[0] / np.product(self.sensor_dimensions * self.sensor_pixel_dimensions))
-        return s
-
-
     # ----- Plotting Code
     def _plot_landscape(self, main_ax, training_path = True, show_scalebar = 'lower right'):
         # -- Plot basic elements
@@ -364,7 +353,7 @@ class NavBySceneFamiliarity(object):
             scalebar_fp = fm.FontProperties(size=8)
             scalebar = AnchoredSizeBar(main_ax.transData,
                                        scalebar_len_px,
-                                       "%.0f %s" % (self.landscape_real_pixel_size * scalebar_len_px, self.sensor_real_area[1]),
+                                       "%.0f mm" % (scalebar_len_px / self.sensor_px_per_mm),
                                        show_scalebar,
                                        pad = 0.2,
                                        color = 'k',
@@ -483,10 +472,10 @@ class NavBySceneFamiliarity(object):
         return (fig, main_ax), stoped_for, np.vstack((xpos, ypos)).T
 
 
-    def animate(self, frames, interval = 100):
+    def animate(self, frames, interval = 100, dpi = 96):
 
         # -- Make figure & axes
-        fig = plt.figure(figsize = (10, 8))
+        fig = plt.figure(figsize = (10, 8), dpi = dpi)
         gs = matplotlib.gridspec.GridSpec(4, 2,
                                           width_ratios = [2, 1],
                                           height_ratios = [6, 6, 6, 1])

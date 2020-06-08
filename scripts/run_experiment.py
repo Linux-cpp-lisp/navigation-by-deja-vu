@@ -38,7 +38,7 @@ import os, sys
 defaults = {
     'n_test_angles' : 10,
     'max_distance_to_training_path' : 450, # Enough that not possible on 2000x2000 landscape to go out of bounds.
-    'sensor_real_area' : (14., "$\mathrm{mm}$"),
+    'sensor_px_per_mm' : PX_PER_MM
 }
 
 float_formatstr = "{:6f}"
